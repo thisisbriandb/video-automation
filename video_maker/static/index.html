@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Maker — YouTube to Shorts</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg: #0a0a0f;
+            --surface: #12121a;
+            --surface2: #1a1a26;
+            --border: #2a2a3a;
+            --text: #e4e4ef;
+            --text-dim: #8888a0;
+            --accent: #7c3aed;
+            --accent-light: #a78bfa;
+            --accent-glow: rgba(124, 58, 237, 0.25);
+            --success: #10b981;
+            --error: #ef4444;
+            --warning: #f59e0b;
+            --radius: 12px;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        /* ── Header ─────────────────────────────── */
+        header {
+            width: 100%;
+            padding: 24px 0 0;
+            text-align: center;
+        }
+        header h1 {
+            font-size: 1.8rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--accent-light), #f472b6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        header p {
+            color: var(--text-dim);
+            font-size: 0.9rem;
+            margin-top: 6px;
+        }
+
+        /* ── Main container ─────────────────────── */
+        main {
+            width: 100%;
+            max-width: 620px;
+            padding: 32px 20px 60px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        /* ── Card ───────────────────────────────── */
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+        }
+
+        /* ── Input group ────────────────────────── */
+        .input-group {
+            display: flex;
+            gap: 10px;
+        }
+        .input-group input {
+            flex: 1;
+            padding: 14px 16px;
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            background: var(--surface2);
+            color: var(--text);
+            font-size: 0.95rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .input-group input::placeholder { color: var(--text-dim); }
+        .input-group input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+
+        .btn {
+            padding: 14px 28px;
+            border-radius: var(--radius);
+            border: none;
+            background: var(--accent);
+            color: #fff;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .btn:hover { background: #6d28d9; transform: translateY(-1px); }
+        .btn:active { transform: translateY(0); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+        /* ── Status section ─────────────────────── */
+        #status-section { display: none; }
+        #status-section.visible { display: block; }
+
+        .status-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.78rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .badge-downloading { background: rgba(124,58,237,0.15); color: var(--accent-light); }
+        .badge-analyzing { background: rgba(245,158,11,0.15); color: var(--warning); }
+        .badge-rendering { background: rgba(59,130,246,0.15); color: #60a5fa; }
+        .badge-completed { background: rgba(16,185,129,0.15); color: var(--success); }
+        .badge-failed { background: rgba(239,68,68,0.15); color: var(--error); }
+        .badge-queued { background: rgba(136,136,160,0.15); color: var(--text-dim); }
+
+        .progress-text {
+            color: var(--text-dim);
+            font-size: 0.88rem;
+        }
+
+        /* Progress bar */
+        .progress-bar-bg {
+            width: 100%;
+            height: 4px;
+            border-radius: 2px;
+            background: var(--surface2);
+            overflow: hidden;
+            margin-bottom: 8px;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            border-radius: 2px;
+            background: linear-gradient(90deg, var(--accent), #f472b6);
+            transition: width 0.5s ease;
+            width: 0%;
+        }
+
+        .error-text {
+            color: var(--error);
+            font-size: 0.88rem;
+            margin-top: 8px;
+        }
+
+        /* ── Result section ─────────────────────── */
+        #result-section { display: none; }
+        #result-section.visible { display: block; }
+
+        .result-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+        .meta-chip {
+            padding: 6px 14px;
+            border-radius: 20px;
+            background: var(--surface2);
+            font-size: 0.82rem;
+            color: var(--text-dim);
+            border: 1px solid var(--border);
+        }
+        .meta-chip strong { color: var(--text); }
+
+        .hook-reason {
+            background: var(--surface2);
+            border-left: 3px solid var(--accent);
+            padding: 12px 16px;
+            border-radius: 0 8px 8px 0;
+            font-size: 0.88rem;
+            color: var(--text-dim);
+            margin-bottom: 16px;
+            font-style: italic;
+        }
+
+        .video-container {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            margin-bottom: 16px;
+        }
+        .video-container video {
+            max-height: 520px;
+            border-radius: var(--radius);
+            background: #000;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        }
+
+        .download-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 24px;
+            border-radius: var(--radius);
+            background: var(--success);
+            color: #fff;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+        .download-btn:hover { background: #059669; transform: translateY(-1px); }
+
+        /* ── Spinner ────────────────────────────── */
+        .spinner {
+            display: inline-block;
+            width: 18px; height: 18px;
+            border: 2.5px solid var(--border);
+            border-top-color: var(--accent-light);
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── Pulse dot for active states ─────────── */
+        .pulse-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: var(--accent-light);
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+        /* ── Footer ─────────────────────────────── */
+        footer {
+            text-align: center;
+            padding: 20px;
+            color: var(--text-dim);
+            font-size: 0.78rem;
+        }
+        footer a { color: var(--accent-light); text-decoration: none; }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>Video Maker</h1>
+    <p>YouTube &rarr; TikTok/Reels en un clic</p>
+</header>
+
+<main>
+    <!-- URL Input -->
+    <div class="card">
+        <div class="input-group">
+            <input type="text" id="url-input" placeholder="Colle une URL YouTube ici..." autocomplete="off" />
+            <button class="btn" id="submit-btn" onclick="submitVideo()">
+                <span id="btn-text">Générer</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Status -->
+    <div class="card" id="status-section">
+        <div class="status-header">
+            <div class="spinner" id="status-spinner"></div>
+            <span class="status-badge badge-queued" id="status-badge">en attente</span>
+            <span class="progress-text" id="progress-text"></span>
+        </div>
+        <div class="progress-bar-bg">
+            <div class="progress-bar-fill" id="progress-bar"></div>
+        </div>
+        <div class="error-text" id="error-text" style="display:none;"></div>
+    </div>
+
+    <!-- Result -->
+    <div class="card" id="result-section">
+        <div class="result-meta" id="result-meta"></div>
+        <div class="hook-reason" id="hook-reason"></div>
+        <div class="video-container">
+            <video id="result-video" controls playsinline></video>
+        </div>
+        <a class="download-btn" id="download-link" href="#" download>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Télécharger le clip
+        </a>
+    </div>
+</main>
+
+<footer>
+    Propulsé par <a href="/api/docs">Video Maker API</a> &middot; Gemini &middot; FFmpeg
+</footer>
+
+<script>
+const API = '';
+let pollTimer = null;
+let currentJobId = null;
+
+const $ = id => document.getElementById(id);
+
+const STATUS_LABELS = {
+    queued: 'En attente',
+    downloading: 'Téléchargement',
+    analyzing: 'Analyse IA',
+    rendering: 'Rendu vidéo',
+    completed: 'Terminé',
+    failed: 'Erreur',
+};
+
+const PROGRESS_MAP = {
+    queued: 5,
+    downloading: 25,
+    analyzing: 55,
+    rendering: 80,
+    completed: 100,
+    failed: 0,
+};
+
+async function submitVideo() {
+    const url = $('url-input').value.trim();
+    if (!url) { $('url-input').focus(); return; }
+
+    // Reset UI
+    $('submit-btn').disabled = true;
+    $('btn-text').textContent = 'Traitement...';
+    $('status-section').classList.add('visible');
+    $('result-section').classList.remove('visible');
+    $('error-text').style.display = 'none';
+    $('progress-bar').style.width = '5%';
+    updateBadge('queued');
+    $('progress-text').textContent = 'Envoi de la requête...';
+    $('status-spinner').style.display = 'inline-block';
+
+    try {
+        const resp = await fetch(`${API}/api/process`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ youtube_url: url }),
+        });
+
+        if (!resp.ok) {
+            const err = await resp.json();
+            throw new Error(err.detail || 'Erreur serveur');
+        }
+
+        const data = await resp.json();
+        currentJobId = data.job_id;
+        startPolling(currentJobId);
+
+    } catch (e) {
+        showError(e.message);
+        resetBtn();
+    }
+}
+
+function startPolling(jobId) {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(() => pollStatus(jobId), 1500);
+}
+
+async function pollStatus(jobId) {
+    try {
+        const resp = await fetch(`${API}/api/status/${jobId}`);
+        if (!resp.ok) throw new Error('Impossible de récupérer le statut');
+        const data = await resp.json();
+
+        updateBadge(data.status);
+        $('progress-text').textContent = data.progress || '';
+        $('progress-bar').style.width = (PROGRESS_MAP[data.status] || 0) + '%';
+
+        if (data.status === 'completed') {
+            clearInterval(pollTimer);
+            $('status-spinner').style.display = 'none';
+            resetBtn();
+            showResult(data);
+        }
+
+        if (data.status === 'failed') {
+            clearInterval(pollTimer);
+            $('status-spinner').style.display = 'none';
+            showError(data.error || 'Le traitement a échoué');
+            resetBtn();
+        }
+
+    } catch (e) {
+        // Silently retry
+    }
+}
+
+function updateBadge(status) {
+    const badge = $('status-badge');
+    badge.textContent = STATUS_LABELS[status] || status;
+    badge.className = 'status-badge badge-' + status;
+}
+
+function showError(msg) {
+    $('error-text').textContent = msg;
+    $('error-text').style.display = 'block';
+    $('progress-bar').style.width = '100%';
+    $('progress-bar').style.background = 'var(--error)';
+    setTimeout(() => {
+        $('progress-bar').style.background = '';
+    }, 3000);
+}
+
+function showResult(data) {
+    if (!data.clips || !data.clips.length) return;
+    const clip = data.clips[0];
+
+    // Meta chips
+    const meta = $('result-meta');
+    meta.innerHTML = `
+        <span class="meta-chip"><strong>${clip.duration}s</strong></span>
+        <span class="meta-chip">Score viral: <strong>${clip.virality_score}/10</strong></span>
+        ${clip.title ? `<span class="meta-chip">${clip.title}</span>` : ''}
+    `;
+
+    // Hook reason
+    const hookEl = $('hook-reason');
+    if (clip.hook_reason) {
+        hookEl.textContent = `"${clip.hook_reason}"`;
+        hookEl.style.display = 'block';
+    } else {
+        hookEl.style.display = 'none';
+    }
+
+    // Video
+    const videoUrl = `${API}${clip.download_link}`;
+    $('result-video').src = videoUrl;
+    $('download-link').href = videoUrl;
+
+    $('result-section').classList.add('visible');
+}
+
+function resetBtn() {
+    $('submit-btn').disabled = false;
+    $('btn-text').textContent = 'Générer';
+}
+
+// Enter key
+$('url-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') submitVideo();
+});
+</script>
+
+</body>
+</html>

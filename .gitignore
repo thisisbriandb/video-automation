@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# vidéos
+*.mp4
+*.mov
+
+# env
+.env
+
+# gros fichiers
+*.zip
+*.tar

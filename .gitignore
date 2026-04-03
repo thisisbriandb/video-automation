@@ -5,6 +5,7 @@ __pycache__/
 
 # vidéos
 *.mp4
+workdir/
 *.mov
 
 # env

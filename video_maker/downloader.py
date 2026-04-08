@@ -13,30 +13,38 @@ def _get_cookies_path() -> str | None:
     """Return path to a Netscape cookies file, if available.
 
     Checks in order:
-      1. YOUTUBE_COOKIES_FILE env var (direct path)
-      2. YOUTUBE_COOKIES env var (base64-encoded cookies.txt content)
+      1. YOUTUBE_COOKIES_FILE env var (direct path to existing file)
+      2. YOUTUBE_COOKIES env var (raw OR base64-encoded cookies.txt content)
     """
     # Direct file path
     cfile = os.environ.get("YOUTUBE_COOKIES_FILE", "")
     if cfile and Path(cfile).is_file():
         return cfile
 
-    # Base64-encoded content → write to temp file
-    b64 = os.environ.get("YOUTUBE_COOKIES", "")
-    if b64:
-        try:
-            # Fix padding if truncated/corrupted during paste
-            b64 = b64.strip()
-            missing_pad = len(b64) % 4
-            if missing_pad:
-                b64 += "=" * (4 - missing_pad)
-            raw = base64.b64decode(b64)
-            tmp = Path(tempfile.gettempdir()) / "yt_cookies.txt"
-            tmp.write_bytes(raw)
-            logger.info(f"YouTube cookies written to {tmp} ({len(raw)} bytes)")
-            return str(tmp)
-        except Exception as e:
-            logger.warning(f"Failed to decode YOUTUBE_COOKIES: {e}")
+    raw_env = os.environ.get("YOUTUBE_COOKIES", "").strip()
+    if not raw_env:
+        return None
+
+    tmp = Path(tempfile.gettempdir()) / "yt_cookies.txt"
+
+    # If it looks like Netscape cookie content, write directly
+    if raw_env.startswith("# Netscape") or raw_env.startswith("# HTTP") or "\t" in raw_env[:200]:
+        tmp.write_text(raw_env, encoding="utf-8")
+        logger.info(f"YouTube cookies (raw) written to {tmp} ({len(raw_env)} chars)")
+        return str(tmp)
+
+    # Otherwise try base64 decode
+    try:
+        cleaned = raw_env.replace("\n", "").replace("\r", "").replace(" ", "")
+        missing_pad = len(cleaned) % 4
+        if missing_pad:
+            cleaned += "=" * (4 - missing_pad)
+        raw = base64.b64decode(cleaned)
+        tmp.write_bytes(raw)
+        logger.info(f"YouTube cookies (b64) written to {tmp} ({len(raw)} bytes)")
+        return str(tmp)
+    except Exception as e:
+        logger.warning(f"Failed to decode YOUTUBE_COOKIES: {e}")
 
     return None
 

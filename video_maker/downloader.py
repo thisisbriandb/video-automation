@@ -19,6 +19,13 @@ def _get_cookies_path() -> str | None:
     # Direct file path
     cfile = os.environ.get("YOUTUBE_COOKIES_FILE", "")
     if cfile and Path(cfile).is_file():
+        # Normalize CRLF → LF (Windows cookies on Linux Docker)
+        content = Path(cfile).read_bytes()
+        if b"\r\n" in content:
+            content = content.replace(b"\r\n", b"\n")
+            Path(cfile).write_bytes(content)
+            logger.info(f"Normalized CRLF in cookies file: {cfile}")
+        logger.info(f"Cookies file: {cfile} ({len(content)} bytes, {content.count(b'\n')} lines)")
         return cfile
 
     raw_env = os.environ.get("YOUTUBE_COOKIES", "").strip()
@@ -77,19 +84,27 @@ def download_video(url: str, job_id: str) -> dict:
     job_dir = _make_job_dir(job_id)
     result = {}
 
-    # ── Step 1: Extract info ────────────────────────────────────────
+    # ── Step 1: Extract info (skip format processing) ─────────────
     logger.info(f"[{job_id}] Extracting video info for: {url}")
     info_opts: dict = {
         "quiet": True, "no_warnings": True,
         "ffmpeg_location": str(FFMPEG_DIR),
-        "format": "best",
     }
     cookies = _get_cookies_path()
     if cookies:
         info_opts["cookiefile"] = cookies
         logger.info("Using YouTube cookies for authentication")
     with yt_dlp.YoutubeDL(info_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
+        info = ydl.extract_info(url, download=False, process=False)
+
+    # Log available formats for debugging
+    formats = info.get("formats") or []
+    logger.info(f"[{job_id}] YouTube returned {len(formats)} formats")
+    if formats:
+        sample = [(f.get('format_id'), f.get('ext'), f.get('height')) for f in formats[:5]]
+        logger.info(f"[{job_id}] Sample formats: {sample}")
+    else:
+        logger.warning(f"[{job_id}] No formats returned! Video may be restricted.")
 
     result["title"] = info.get("title", "untitled")
     result["duration"] = info.get("duration", 0)

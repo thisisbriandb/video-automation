@@ -25,10 +25,15 @@ def _get_cookies_path() -> str | None:
     b64 = os.environ.get("YOUTUBE_COOKIES", "")
     if b64:
         try:
+            # Fix padding if truncated/corrupted during paste
+            b64 = b64.strip()
+            missing_pad = len(b64) % 4
+            if missing_pad:
+                b64 += "=" * (4 - missing_pad)
             raw = base64.b64decode(b64)
             tmp = Path(tempfile.gettempdir()) / "yt_cookies.txt"
             tmp.write_bytes(raw)
-            logger.info(f"YouTube cookies written to {tmp}")
+            logger.info(f"YouTube cookies written to {tmp} ({len(raw)} bytes)")
             return str(tmp)
         except Exception as e:
             logger.warning(f"Failed to decode YOUTUBE_COOKIES: {e}")

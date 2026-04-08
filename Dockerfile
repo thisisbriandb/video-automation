@@ -17,6 +17,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy app code
 COPY video_maker/ video_maker/
 
+# Copy YouTube cookies if present
+COPY cookies.txt /app/cookies.txt
+
 # Create working directories
 RUN mkdir -p workdir output
 
@@ -25,6 +28,7 @@ ENV PORT=8001
 ENV NUM_WORKERS=4
 ENV WHISPER_MODEL=small
 ENV FFMPEG_DIR=/usr/bin
+ENV YOUTUBE_COOKIES_FILE=/app/cookies.txt
 
 EXPOSE 8001
 

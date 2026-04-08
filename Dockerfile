@@ -11,9 +11,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Deno (required by yt-dlp-ejs for YouTube JS challenge solving)
-RUN curl -fsSL https://dl.deno.land/release/latest/deno-x86_64-unknown-linux-gnu.zip \
-    -o /tmp/deno.zip \
-    && apt-get update && apt-get install -y --no-install-recommends unzip \
+RUN apt-get update && apt-get install -y --no-install-recommends unzip \
+    && curl -fsSL -o /tmp/deno.zip \
+       https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip \
     && unzip /tmp/deno.zip -d /usr/local/bin/ \
     && rm /tmp/deno.zip \
     && apt-get purge -y unzip && apt-get autoremove -y && rm -rf /var/lib/apt/lists/* \

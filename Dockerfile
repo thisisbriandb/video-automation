@@ -21,7 +21,10 @@ WORKDIR /app
 
 # Install Python dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir --force-reinstall \
+       https://github.com/yt-dlp/yt-dlp/archive/master.tar.gz \
+    && python -c "import yt_dlp; print('yt-dlp version:', yt_dlp.version.__version__)"
 
 # Copy app code
 COPY video_maker/ video_maker/

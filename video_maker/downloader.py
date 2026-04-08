@@ -79,7 +79,11 @@ def download_video(url: str, job_id: str) -> dict:
 
     # ── Step 1: Extract info ────────────────────────────────────────
     logger.info(f"[{job_id}] Extracting video info for: {url}")
-    info_opts: dict = {"quiet": True, "no_warnings": True, "ffmpeg_location": str(FFMPEG_DIR)}
+    info_opts: dict = {
+        "quiet": True, "no_warnings": True,
+        "ffmpeg_location": str(FFMPEG_DIR),
+        "skip_download": True,
+    }
     cookies = _get_cookies_path()
     if cookies:
         info_opts["cookiefile"] = cookies
@@ -94,26 +98,17 @@ def download_video(url: str, job_id: str) -> dict:
 
     logger.info(f"[{job_id}] Video: {result['title']} ({result['duration']}s, {result['width']}x{result['height']})")
 
-    # ── Step 2: Download high-res (1080p, fallback 720p) ─────────────
+    # ── Step 2: Download high-res (best available, prefer ≤1080p) ────
     video_path = job_dir / "source.mp4"
-    logger.info(f"[{job_id}] Downloading (1080p target)...")
-    try:
-        _download_with_format(
-            url, video_path,
-            format_selector=(
-                "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/"
-                "bestvideo[height<=1080]+bestaudio/best[height<=1080]"
-            ),
-        )
-    except Exception as e:
-        logger.warning(f"[{job_id}] 1080p download failed ({e}), retrying at 720p...")
-        _download_with_format(
-            url, video_path,
-            format_selector=(
-                "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/"
-                "bestvideo[height<=720]+bestaudio/best[height<=720]"
-            ),
-        )
+    logger.info(f"[{job_id}] Downloading (best available)...")
+    _download_with_format(
+        url, video_path,
+        format_selector=(
+            "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/"
+            "bestvideo[height<=1080]+bestaudio/"
+            "bestvideo+bestaudio/best"
+        ),
+    )
 
     result["video_path"] = video_path
     size_mb = video_path.stat().st_size / 1024 / 1024

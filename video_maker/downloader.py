@@ -25,7 +25,8 @@ def _get_cookies_path() -> str | None:
             content = content.replace(b"\r\n", b"\n")
             Path(cfile).write_bytes(content)
             logger.info(f"Normalized CRLF in cookies file: {cfile}")
-        logger.info(f"Cookies file: {cfile} ({len(content)} bytes, {content.count(b'\n')} lines)")
+        newline_count = content.count(b"\n")
+        logger.info(f"Cookies file: {cfile} ({len(content)} bytes, {newline_count} lines)")
         return cfile
 
     raw_env = os.environ.get("YOUTUBE_COOKIES", "").strip()

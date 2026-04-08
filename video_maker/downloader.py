@@ -90,6 +90,7 @@ def download_video(url: str, job_id: str) -> dict:
     info_opts: dict = {
         "quiet": True, "no_warnings": True,
         "ffmpeg_location": str(FFMPEG_DIR),
+        "extractor_args": {"youtube": {"player_client": ["web"]}},
     }
     cookies = _get_cookies_path()
     if cookies:
@@ -160,6 +161,7 @@ def _download_with_format(url: str, output_path: Path, format_selector: str) -> 
         "noprogress": False,
         "overwrites": True,
         "ffmpeg_location": str(FFMPEG_DIR),
+        "extractor_args": {"youtube": {"player_client": ["web"]}},
         # Retry & timeout settings
         "retries": 5,
         "fragment_retries": 5,

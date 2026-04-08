@@ -19,12 +19,11 @@ RUN curl -fsSL https://nodejs.org/dist/v20.18.0/node-v20.18.0-linux-x64.tar.xz \
 
 WORKDIR /app
 
-# Install Python dependencies
+# Install Python dependencies (yt-dlp[default] pulls in yt-dlp-ejs for YouTube JS challenges)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir --force-reinstall \
-       https://github.com/yt-dlp/yt-dlp/archive/master.tar.gz \
-    && python -c "import yt_dlp; print('yt-dlp version:', yt_dlp.version.__version__)"
+    && python -c "import yt_dlp; print('yt-dlp version:', yt_dlp.version.__version__)" \
+    && python -c "import yt_dlp_ejs; print('yt-dlp-ejs OK')"
 
 # Copy app code
 COPY video_maker/ video_maker/

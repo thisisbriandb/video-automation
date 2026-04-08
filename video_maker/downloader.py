@@ -1,9 +1,39 @@
 """Download YouTube videos using yt-dlp for analysis and rendering."""
 
+import base64
+import os
 import sys
+import tempfile
 from pathlib import Path
 from video_maker.config import WORKING_DIR, PROJECT_ROOT, FFMPEG_DIR
 from video_maker.utils import logger
+
+
+def _get_cookies_path() -> str | None:
+    """Return path to a Netscape cookies file, if available.
+
+    Checks in order:
+      1. YOUTUBE_COOKIES_FILE env var (direct path)
+      2. YOUTUBE_COOKIES env var (base64-encoded cookies.txt content)
+    """
+    # Direct file path
+    cfile = os.environ.get("YOUTUBE_COOKIES_FILE", "")
+    if cfile and Path(cfile).is_file():
+        return cfile
+
+    # Base64-encoded content → write to temp file
+    b64 = os.environ.get("YOUTUBE_COOKIES", "")
+    if b64:
+        try:
+            raw = base64.b64decode(b64)
+            tmp = Path(tempfile.gettempdir()) / "yt_cookies.txt"
+            tmp.write_bytes(raw)
+            logger.info(f"YouTube cookies written to {tmp}")
+            return str(tmp)
+        except Exception as e:
+            logger.warning(f"Failed to decode YOUTUBE_COOKIES: {e}")
+
+    return None
 
 # Add the youtube-downloader-api to sys.path so we can reuse yt-dlp
 _yt_api_path = str(PROJECT_ROOT / "youtube-downloader-api")
@@ -36,7 +66,12 @@ def download_video(url: str, job_id: str) -> dict:
 
     # ── Step 1: Extract info ────────────────────────────────────────
     logger.info(f"[{job_id}] Extracting video info for: {url}")
-    with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "ffmpeg_location": str(FFMPEG_DIR)}) as ydl:
+    info_opts: dict = {"quiet": True, "no_warnings": True, "ffmpeg_location": str(FFMPEG_DIR)}
+    cookies = _get_cookies_path()
+    if cookies:
+        info_opts["cookiefile"] = cookies
+        logger.info("Using YouTube cookies for authentication")
+    with yt_dlp.YoutubeDL(info_opts) as ydl:
         info = ydl.extract_info(url, download=False)
 
     result["title"] = info.get("title", "untitled")
@@ -114,5 +149,8 @@ def _download_with_format(url: str, output_path: Path, format_selector: str) -> 
             }
         ],
     }
+    cookies = _get_cookies_path()
+    if cookies:
+        ydl_opts["cookiefile"] = cookies
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])

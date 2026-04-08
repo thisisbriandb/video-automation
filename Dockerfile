@@ -10,12 +10,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js 20 directly (needed by yt-dlp for YouTube JS challenge solving)
-RUN curl -fsSL https://nodejs.org/dist/v20.18.0/node-v20.18.0-linux-x64.tar.xz \
-    -o /tmp/node.tar.xz \
-    && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
-    && rm /tmp/node.tar.xz \
-    && node --version
+# Install Deno (required by yt-dlp-ejs for YouTube JS challenge solving)
+RUN curl -fsSL https://dl.deno.land/release/latest/deno-x86_64-unknown-linux-gnu.zip \
+    -o /tmp/deno.zip \
+    && apt-get update && apt-get install -y --no-install-recommends unzip \
+    && unzip /tmp/deno.zip -d /usr/local/bin/ \
+    && rm /tmp/deno.zip \
+    && apt-get purge -y unzip && apt-get autoremove -y && rm -rf /var/lib/apt/lists/* \
+    && chmod +x /usr/local/bin/deno \
+    && deno --version
 
 WORKDIR /app
 

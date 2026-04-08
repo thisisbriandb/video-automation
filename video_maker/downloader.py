@@ -74,15 +74,16 @@ try:
 except ImportError:
     logger.warning("yt-dlp-ejs NOT installed — EJS challenge solver scripts missing!")
 
-_node_path = shutil.which("node")
-if _node_path:
-    try:
-        _node_ver = subprocess.check_output([_node_path, "--version"], text=True).strip()
-        logger.info(f"Node.js found: {_node_path} ({_node_ver})")
-    except Exception:
-        logger.warning(f"Node.js binary found at {_node_path} but failed to run")
-else:
-    logger.warning("Node.js NOT found in PATH — yt-dlp JS challenges will fail!")
+for _rt_name in ("deno", "node", "bun"):
+    _rt_path = shutil.which(_rt_name)
+    if _rt_path:
+        try:
+            _rt_ver = subprocess.check_output([_rt_path, "--version"], text=True).strip().split("\n")[0]
+            logger.info(f"{_rt_name} found: {_rt_path} ({_rt_ver})")
+        except Exception:
+            logger.warning(f"{_rt_name} binary found at {_rt_path} but failed to run")
+    else:
+        logger.info(f"{_rt_name}: not installed")
 
 
 def _make_job_dir(job_id: str) -> Path:

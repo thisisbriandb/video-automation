@@ -82,7 +82,7 @@ def download_video(url: str, job_id: str) -> dict:
     info_opts: dict = {
         "quiet": True, "no_warnings": True,
         "ffmpeg_location": str(FFMPEG_DIR),
-        "skip_download": True,
+        "format": "best",
     }
     cookies = _get_cookies_path()
     if cookies:

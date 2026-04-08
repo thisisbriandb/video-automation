@@ -142,6 +142,9 @@ def download_video(url: str, job_id: str) -> dict:
     _download_with_format(
         url, video_path,
         format_selector=(
+            # Prefer H.264 (avc1) — AV1 software decoding is ~5-10x slower on CPU
+            "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[acodec^=mp4a]/"
+            "bestvideo[height<=1080][vcodec^=avc1]+bestaudio/"
             "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/"
             "bestvideo[height<=1080]+bestaudio/"
             "bestvideo+bestaudio/best"

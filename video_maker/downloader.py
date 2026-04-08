@@ -65,7 +65,15 @@ if _yt_api_path not in sys.path:
 
 import yt_dlp
 
-# Log Node.js availability at import time (critical for yt-dlp JS challenges)
+# Log versions & Node.js availability at import time
+logger.info(f"yt-dlp version: {yt_dlp.version.__version__}")
+try:
+    import yt_dlp_ejs
+    _ejs_ver = getattr(yt_dlp_ejs, "__version__", getattr(yt_dlp_ejs, "version", "unknown"))
+    logger.info(f"yt-dlp-ejs installed: {_ejs_ver}")
+except ImportError:
+    logger.warning("yt-dlp-ejs NOT installed — EJS challenge solver scripts missing!")
+
 _node_path = shutil.which("node")
 if _node_path:
     try:
@@ -103,7 +111,6 @@ def download_video(url: str, job_id: str) -> dict:
     info_opts: dict = {
         "quiet": True, "no_warnings": True,
         "ffmpeg_location": str(FFMPEG_DIR),
-        "extractor_args": {"youtube": {"player_client": ["web"]}},
     }
     cookies = _get_cookies_path()
     if cookies:
@@ -171,15 +178,19 @@ def _download_with_format(url: str, output_path: Path, format_selector: str) -> 
         "merge_output_format": "mp4",
         "quiet": False,
         "no_warnings": False,
+        "verbose": True,
         "noprogress": False,
         "overwrites": True,
         "ffmpeg_location": str(FFMPEG_DIR),
-        "extractor_args": {"youtube": {"player_client": ["web"]}},
         # Retry & timeout settings
-        "retries": 5,
-        "fragment_retries": 5,
+        "retries": 10,
+        "fragment_retries": 10,
+        "extractor_retries": 5,
         "socket_timeout": 30,
         "http_chunk_size": 10485760,  # 10 MB chunks
+        "sleep_interval": 1,
+        "max_sleep_interval": 5,
+        "sleep_interval_requests": 1,
         "progress_hooks": [_dl_progress_hook],
         "postprocessors": [
             {

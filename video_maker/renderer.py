@@ -3,12 +3,13 @@
 import json
 import subprocess
 from pathlib import Path
-from video_maker.config import FFMPEG_DIR
+from video_maker.config import FFMPEG_DIR, SUBTITLE_WORDS_PER_CHUNK, SUBTITLE_UPPERCASE
 from video_maker.models import ClipSegment, FaceKeyframe
-from video_maker.utils import logger, generate_srt, clamp
+from video_maker.utils import logger, words_to_hormozi_srt, clamp
 
-FFMPEG_BIN = str(FFMPEG_DIR / "ffmpeg.exe")
-FFPROBE_BIN = str(FFMPEG_DIR / "ffprobe.exe")
+import sys as _sys
+FFMPEG_BIN = str(FFMPEG_DIR / ("ffmpeg.exe" if _sys.platform == "win32" else "ffmpeg"))
+FFPROBE_BIN = str(FFMPEG_DIR / ("ffprobe.exe" if _sys.platform == "win32" else "ffprobe"))
 
 OUTPUT_WIDTH = 1080
 OUTPUT_HEIGHT = 1920
@@ -48,18 +49,18 @@ def _average_face_x(keyframes: list[FaceKeyframe], fallback: int) -> int:
 
 
 def _build_subtitle_style() -> str:
-    """Return ASS-style override for TikTok-style subtitles."""
+    """Return ASS-style override for Hormozi-style subtitles: lower third, just below face."""
     return (
-        "FontName=Arial Black,"
-        "FontSize=20,"
+        "FontName=Impact,"
+        "FontSize=18,"
         "PrimaryColour=&H00FFFFFF,"
         "OutlineColour=&H00000000,"
-        "BackColour=&H80000000,"
+        "BackColour=&H00000000,"
         "Bold=1,"
-        "Outline=2,"
-        "Shadow=1,"
+        "Outline=3,"
+        "Shadow=0,"
         "Alignment=2,"
-        "MarginV=60"
+        "MarginV=550"
     )
 
 
@@ -115,11 +116,11 @@ def render_clip(
 
     logger.info(f"{prefix}Crop: {crop_w}x{crop_h} at ({crop_x},{crop_y}), face_x={face_x}")
 
-    # ── Generate SRT file ──────────────────────────────────────────
+    # ── Generate Hormozi-style SRT file ─────────────────────────────
     srt_path = None
-    if segment.subtitles:
+    if segment.words:
         srt_path = output_path.parent / f"{output_path.stem}.srt"
-        generate_srt(segment.subtitles, srt_path)
+        words_to_hormozi_srt(segment.words, srt_path, words_per_chunk=SUBTITLE_WORDS_PER_CHUNK, uppercase=SUBTITLE_UPPERCASE)
 
     # ── Build filter chain ──────────────────────────────────────────
     filters = []

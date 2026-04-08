@@ -21,14 +21,15 @@ def _make_job_dir(job_id: str) -> Path:
 
 
 def download_video(url: str, job_id: str) -> dict:
-    """Download a YouTube video in two resolutions.
+    """Download a YouTube video (high-res only).
 
     Returns:
         dict with keys:
-            - "low_res": Path to 360p video (for Gemini analysis)
-            - "high_res": Path to best available video (for final render)
+            - "video_path": Path to best available video (for analysis + render)
             - "title": Video title
             - "duration": Video duration in seconds
+            - "width": Video width
+            - "height": Video height
     """
     job_dir = _make_job_dir(job_id)
     result = {}
@@ -45,20 +46,48 @@ def download_video(url: str, job_id: str) -> dict:
 
     logger.info(f"[{job_id}] Video: {result['title']} ({result['duration']}s, {result['width']}x{result['height']})")
 
-    # ── Step 2: Download low-res for Gemini analysis ────────────────
-    low_res_path = job_dir / "source_low.mp4"
-    logger.info(f"[{job_id}] Downloading low-res (360p)...")
-    _download_with_format(url, low_res_path, format_selector="bestvideo[height<=360]+bestaudio/best[height<=360]/worst")
-    result["low_res"] = low_res_path
+    # ── Step 2: Download high-res (1080p, fallback 720p) ─────────────
+    video_path = job_dir / "source.mp4"
+    logger.info(f"[{job_id}] Downloading (1080p target)...")
+    try:
+        _download_with_format(
+            url, video_path,
+            format_selector=(
+                "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/"
+                "bestvideo[height<=1080]+bestaudio/best[height<=1080]"
+            ),
+        )
+    except Exception as e:
+        logger.warning(f"[{job_id}] 1080p download failed ({e}), retrying at 720p...")
+        _download_with_format(
+            url, video_path,
+            format_selector=(
+                "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/"
+                "bestvideo[height<=720]+bestaudio/best[height<=720]"
+            ),
+        )
 
-    # ── Step 3: Download high-res for final render ──────────────────
-    high_res_path = job_dir / "source_high.mp4"
-    logger.info(f"[{job_id}] Downloading high-res...")
-    _download_with_format(url, high_res_path, format_selector="bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best")
-    result["high_res"] = high_res_path
-
-    logger.info(f"[{job_id}] Downloads complete.")
+    result["video_path"] = video_path
+    size_mb = video_path.stat().st_size / 1024 / 1024
+    logger.info(f"[{job_id}] Download complete: {size_mb:.1f} MB")
     return result
+
+
+def _dl_progress_hook(d: dict) -> None:
+    """Log download progress at meaningful intervals."""
+    if d.get("status") == "downloading":
+        pct = d.get("_percent_str", "?").strip()
+        speed = d.get("_speed_str", "?").strip()
+        eta = d.get("_eta_str", "?").strip()
+        # Log every ~10%
+        try:
+            pct_val = float(d.get("downloaded_bytes", 0)) / max(float(d.get("total_bytes", 1)), 1) * 100
+            if int(pct_val) % 10 < 2:  # roughly every 10%
+                logger.info(f"Download: {pct} at {speed}, ETA {eta}")
+        except (ValueError, TypeError):
+            pass
+    elif d.get("status") == "finished":
+        logger.info(f"Download finished, merging/converting...")
 
 
 def _download_with_format(url: str, output_path: Path, format_selector: str) -> None:
@@ -67,10 +96,17 @@ def _download_with_format(url: str, output_path: Path, format_selector: str) -> 
         "format": format_selector,
         "outtmpl": str(output_path),
         "merge_output_format": "mp4",
-        "quiet": True,
-        "no_warnings": True,
+        "quiet": False,
+        "no_warnings": False,
+        "noprogress": False,
         "overwrites": True,
         "ffmpeg_location": str(FFMPEG_DIR),
+        # Retry & timeout settings
+        "retries": 5,
+        "fragment_retries": 5,
+        "socket_timeout": 30,
+        "http_chunk_size": 10485760,  # 10 MB chunks
+        "progress_hooks": [_dl_progress_hook],
         "postprocessors": [
             {
                 "key": "FFmpegVideoConvertor",

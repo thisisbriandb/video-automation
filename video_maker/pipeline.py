@@ -1,11 +1,11 @@
-"""Pipeline orchestrator: download → analyze → render, with async job tracking."""
+"""Pipeline orchestrator: download → local scoring → whisper → render (parallel)."""
 
 import asyncio
 import uuid
-import shutil
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
-from video_maker.config import WORKING_DIR, OUTPUT_DIR
+
+from video_maker.config import WORKING_DIR, OUTPUT_DIR, NUM_WORKERS
 from video_maker.models import (
     JobStatus,
     PipelineStatus,
@@ -14,14 +14,15 @@ from video_maker.models import (
 )
 from video_maker.downloader import download_video
 from video_maker.analyzer import analyze_video
-from video_maker.renderer import render_clip
+from video_maker.vision import detect_faces
+from video_maker.renderer import render_clip, _probe_video
 from video_maker.utils import logger, cleanup_directory
 
 # In-memory job store
 _jobs: dict[str, PipelineStatus] = {}
 
-# Thread pool for blocking I/O (download, Gemini, FFmpeg)
-_executor = ThreadPoolExecutor(max_workers=4)
+# Thread pool for blocking I/O
+_executor = ThreadPoolExecutor(max_workers=2)
 
 
 def get_job(job_id: str) -> PipelineStatus | None:
@@ -41,69 +42,48 @@ def _update_job(job_id: str, **kwargs) -> None:
             setattr(_jobs[job_id], k, v)
 
 
-def _run_pipeline_sync(job_id: str, youtube_url: str) -> None:
-    """Synchronous pipeline execution (runs in thread pool)."""
-    job_dir = WORKING_DIR / job_id
-    output_job_dir = OUTPUT_DIR / job_id
-    output_job_dir.mkdir(parents=True, exist_ok=True)
+# ── Single-clip render worker ──────────────────────────────────────
+
+
+def _render_one_clip(
+    idx: int,
+    segment: ClipSegment,
+    video_path: Path,
+    output_job_dir: Path,
+    src_width: int,
+    src_height: int,
+    job_id: str,
+) -> ClipResponse | None:
+    """Render a single clip: face detection → FFmpeg render. Runs in a worker thread."""
+    clip_duration = round(segment.end - segment.start, 1)
+    output_filename = f"clip_{idx + 1:02d}.mp4"
+    output_path = output_job_dir / output_filename
+    prefix = f"[{job_id}][clip {idx + 1}]"
 
     try:
-        # ── Step 1: Download ────────────────────────────────────────
-        _update_job(job_id, status=JobStatus.DOWNLOADING, progress="Downloading video...")
-        dl_result = download_video(youtube_url, job_id)
-        logger.info(f"[{job_id}] Download complete: {dl_result['title']}")
-
-        # ── Step 2: Analyze with Gemini ─────────────────────────────
-        _update_job(job_id, status=JobStatus.ANALYZING, progress="Analyzing video with AI...")
-        analysis = analyze_video(
-            video_path=dl_result["low_res"],
-            duration=dl_result["duration"],
-            width=dl_result.get("width", 1920),
-            height=dl_result.get("height", 1080),
-        )
-
-        if not analysis.clips:
-            _update_job(
-                job_id,
-                status=JobStatus.FAILED,
-                error="Gemini could not identify a hook in this video.",
-            )
-            return
-
-        # Take the single best clip (first one returned by Gemini)
-        segment = analysis.clips[0]
-        clip_duration = round(segment.end - segment.start, 1)
-        logger.info(
-            f"[{job_id}] Hook detected at {segment.start:.1f}s "
-            f"(score {segment.virality_score}/10, {clip_duration}s): "
-            f"{segment.hook_reason}"
-        )
-
-        # ── Step 3: Render the clip ─────────────────────────────────
-        _update_job(job_id, status=JobStatus.RENDERING, progress="Rendering clip from hook...")
-
-        output_filename = "clip.mp4"
-        output_path = output_job_dir / output_filename
-
+        # Face detection for this segment
+        logger.info(f"{prefix} Detecting faces...")
         try:
-            render_clip(
-                source_path=dl_result["high_res"],
-                segment=segment,
-                output_path=output_path,
-                src_width=dl_result.get("width", 1920),
-                src_height=dl_result.get("height", 1080),
-                job_id=job_id,
+            segment.face_keyframes = detect_faces(
+                video_path=video_path,
+                start_time=segment.start,
+                end_time=segment.end,
             )
         except Exception as e:
-            logger.error(f"[{job_id}] Failed to render clip: {e}")
-            _update_job(
-                job_id,
-                status=JobStatus.FAILED,
-                error=f"Render failed: {e}",
-            )
-            return
+            logger.error(f"{prefix} Face detection failed: {e}")
 
-        clip_response = ClipResponse(
+        # Render
+        logger.info(f"{prefix} Rendering {clip_duration}s clip...")
+        render_clip(
+            source_path=video_path,
+            segment=segment,
+            output_path=output_path,
+            src_width=src_width,
+            src_height=src_height,
+            job_id=job_id,
+        )
+
+        return ClipResponse(
             filename=output_filename,
             download_link=f"/api/clips/{job_id}/{output_filename}",
             virality_score=segment.virality_score,
@@ -112,23 +92,99 @@ def _run_pipeline_sync(job_id: str, youtube_url: str) -> None:
             hook_reason=segment.hook_reason,
         )
 
+    except Exception as e:
+        logger.error(f"{prefix} Render failed: {e}")
+        return None
+
+
+# ── Main pipeline ──────────────────────────────────────────────────
+
+
+def _run_pipeline_sync(job_id: str, youtube_url: str) -> None:
+    """Synchronous pipeline execution (runs in thread pool)."""
+    job_dir = WORKING_DIR / job_id
+    output_job_dir = OUTPUT_DIR / job_id
+    output_job_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        # ── Step 1: Download (high-res only) ────────────────────────
+        _update_job(job_id, status=JobStatus.DOWNLOADING, progress="Downloading video...")
+        dl_result = download_video(youtube_url, job_id)
+        video_path = dl_result["video_path"]
+        logger.info(f"[{job_id}] Download complete: {dl_result['title']}")
+
+        # ── Step 2: Local analysis (scoring + Whisper + ranking) ────
+        _update_job(job_id, status=JobStatus.ANALYZING, progress="Analyzing video locally (audio + visual + transcription)...")
+        analysis = analyze_video(
+            video_path=video_path,
+            work_dir=job_dir,
+        )
+
+        if not analysis.clips:
+            _update_job(
+                job_id,
+                status=JobStatus.FAILED,
+                error="Could not identify interesting segments in this video.",
+            )
+            return
+
+        num_clips = len(analysis.clips)
+        logger.info(f"[{job_id}] {num_clips} clips identified, starting parallel render...")
+
+        # Probe video dimensions once (not in each worker)
+        probe = _probe_video(video_path)
+        src_w = probe["width"]
+        src_h = probe["height"]
+
+        # ── Step 3: Render clips in parallel ────────────────────────
+        _update_job(
+            job_id,
+            status=JobStatus.RENDERING,
+            progress=f"Rendering {num_clips} clips with {NUM_WORKERS} workers...",
+        )
+
+        clip_responses = []
+        with ThreadPoolExecutor(max_workers=NUM_WORKERS) as render_pool:
+            futures = []
+            for idx, segment in enumerate(analysis.clips):
+                fut = render_pool.submit(
+                    _render_one_clip,
+                    idx,
+                    segment,
+                    video_path,
+                    output_job_dir,
+                    src_w,
+                    src_h,
+                    job_id,
+                )
+                futures.append(fut)
+
+            for fut in futures:
+                result = fut.result()
+                if result is not None:
+                    clip_responses.append(result)
+
+        if not clip_responses:
+            _update_job(job_id, status=JobStatus.FAILED, error="All clip renders failed.")
+            return
+
         # ── Step 4: Cleanup temp files ──────────────────────────────
         logger.info(f"[{job_id}] Cleaning up temp files...")
         cleanup_directory(job_dir)
 
         # ── Done ────────────────────────────────────────────────────
+        total_duration = sum(c.duration for c in clip_responses)
         _update_job(
             job_id,
             status=JobStatus.COMPLETED,
-            progress=f"Done! 1 clip ready ({clip_duration}s).",
-            clips=[clip_response],
+            progress=f"Done! {len(clip_responses)} clips ready ({total_duration:.0f}s total).",
+            clips=clip_responses,
         )
-        logger.info(f"[{job_id}] Pipeline complete: {output_filename} ({clip_duration}s)")
+        logger.info(f"[{job_id}] Pipeline complete: {len(clip_responses)} clips rendered")
 
     except Exception as e:
         logger.exception(f"[{job_id}] Pipeline failed: {e}")
         _update_job(job_id, status=JobStatus.FAILED, error=str(e))
-        # Attempt cleanup even on failure
         cleanup_directory(job_dir)
 
 
@@ -148,7 +204,6 @@ async def start_pipeline(youtube_url: str) -> str:
 
     logger.info(f"[{job_id}] Starting pipeline for: {youtube_url}")
 
-    # Run the blocking pipeline in the thread pool
     loop = asyncio.get_event_loop()
     loop.run_in_executor(_executor, _run_pipeline_sync, job_id, youtube_url)
 

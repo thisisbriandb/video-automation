@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+output/
+workdir/
+.git/
+.env
+*.mp4
+*.wav
+youtube-downloader-api/

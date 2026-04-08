@@ -3,7 +3,7 @@
 import logging
 import shutil
 from pathlib import Path
-from video_maker.models import SubtitleLine
+from video_maker.models import SubtitleLine, SubtitleWord
 
 logger = logging.getLogger("video_maker")
 logger.setLevel(logging.INFO)
@@ -46,3 +46,41 @@ def generate_srt(subtitles: list[SubtitleLine], output_path: Path) -> Path:
 def clamp(value: float, min_val: float, max_val: float) -> float:
     """Clamp a value between min and max."""
     return max(min_val, min(value, max_val))
+
+
+def words_to_hormozi_srt(
+    words: list[SubtitleWord],
+    output_path: Path,
+    words_per_chunk: int = 3,
+    uppercase: bool = True,
+) -> Path:
+    """Generate Hormozi-style SRT: 2-3 words per subtitle, big and punchy.
+
+    Groups words into chunks of `words_per_chunk` with tight timing.
+    """
+    if not words:
+        output_path.write_text("", encoding="utf-8")
+        return output_path
+
+    chunks: list[SubtitleLine] = []
+    i = 0
+    while i < len(words):
+        group = words[i : i + words_per_chunk]
+        text = " ".join(w.word for w in group)
+        if uppercase:
+            text = text.upper()
+        chunks.append(SubtitleLine(
+            start=group[0].start,
+            end=group[-1].end,
+            text=text,
+        ))
+        i += words_per_chunk
+
+    # Ensure no gap between chunks (avoids flicker)
+    for j in range(len(chunks) - 1):
+        if chunks[j].end < chunks[j + 1].start:
+            chunks[j].end = chunks[j + 1].start
+
+    generate_srt(chunks, output_path)
+    logger.info(f"Generated Hormozi SRT: {output_path.name} ({len(chunks)} chunks from {len(words)} words)")
+    return output_path

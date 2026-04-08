@@ -2,6 +2,8 @@
 
 import base64
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -62,6 +64,17 @@ if _yt_api_path not in sys.path:
     sys.path.insert(0, _yt_api_path)
 
 import yt_dlp
+
+# Log Node.js availability at import time (critical for yt-dlp JS challenges)
+_node_path = shutil.which("node")
+if _node_path:
+    try:
+        _node_ver = subprocess.check_output([_node_path, "--version"], text=True).strip()
+        logger.info(f"Node.js found: {_node_path} ({_node_ver})")
+    except Exception:
+        logger.warning(f"Node.js binary found at {_node_path} but failed to run")
+else:
+    logger.warning("Node.js NOT found in PATH — yt-dlp JS challenges will fail!")
 
 
 def _make_job_dir(job_id: str) -> Path:

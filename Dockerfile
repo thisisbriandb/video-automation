@@ -1,13 +1,20 @@
 FROM python:3.11-slim
 
-# Install system dependencies + Node.js (needed by yt-dlp for JS challenge solving)
+# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libsndfile1 \
     libgl1 \
     libglib2.0-0 \
-    nodejs \
-    && rm -rf /var/lib/apt/lists/* \
+    curl \
+    xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 20 directly (needed by yt-dlp for YouTube JS challenge solving)
+RUN curl -fsSL https://nodejs.org/dist/v20.18.0/node-v20.18.0-linux-x64.tar.xz \
+    -o /tmp/node.tar.xz \
+    && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
+    && rm /tmp/node.tar.xz \
     && node --version
 
 WORKDIR /app

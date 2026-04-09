@@ -29,6 +29,16 @@ def _get_cookies_path() -> str | None:
             logger.info(f"Normalized CRLF in cookies file: {cfile}")
         newline_count = content.count(b"\n")
         logger.info(f"Cookies file: {cfile} ({len(content)} bytes, {newline_count} lines)")
+        # Log first non-comment cookie domain for debugging expiry
+        for line in content.decode("utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                parts = line.split("\t")
+                if len(parts) >= 5:
+                    domain = parts[0]
+                    expiry = parts[4]
+                    logger.info(f"  Cookie sample: domain={domain}, expires={expiry}")
+                    break
         return cfile
 
     raw_env = os.environ.get("YOUTUBE_COOKIES", "").strip()

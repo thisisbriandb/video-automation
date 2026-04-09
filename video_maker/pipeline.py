@@ -21,8 +21,9 @@ from video_maker.utils import logger, cleanup_directory
 # In-memory job store
 _jobs: dict[str, PipelineStatus] = {}
 
-# Thread pool for blocking I/O
-_executor = ThreadPoolExecutor(max_workers=2)
+# Thread pool for blocking I/O (Main pipeline executor)
+# On 48vCPU, we can safely allow 4-6 concurrent videos at once
+_executor = ThreadPoolExecutor(max_workers=4)
 
 
 def get_job(job_id: str) -> PipelineStatus | None:

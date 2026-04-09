@@ -387,11 +387,10 @@ def score_video(video_path: Path, work_dir: Path) -> Tuple[List[ScoredSegment], 
 
     Pipeline:
       1. Probe duration
-      2. Extract N audio chunks in parallel (ThreadPool)
-      3. Analyse each chunk with librosa in parallel (ProcessPool)
+      2. Extract FULL audio for both scoring and Whisper (one pass)
+      3. Analyse audio in parallel chunks (ProcessPool)
       4. Stitch features, score windows
       5. Visual analysis on top windows (ThreadPool — already parallel)
-      6. Extract full audio for Whisper
 
     Returns:
         segments: Top pre-scored segments (up to TOP_PRESCORE), sorted by score desc
@@ -405,34 +404,51 @@ def score_video(video_path: Path, work_dir: Path) -> Tuple[List[ScoredSegment], 
     duration = _get_video_duration(video_path)
     logger.info(f"Video duration: {duration:.1f}s")
 
+    # Step 2: Extract full audio for everyone
+    t_audio = time.time()
+    audio_path = work_dir / "audio_full.wav"
+    _extract_audio(video_path, audio_path)
+    logger.info(f"[TIMING] Full audio extraction: {time.time() - t_audio:.1f}s")
+
     # Decide chunk count: ~2 min per chunk, at least 1, at most NUM_WORKERS
     n_chunks = min(NUM_WORKERS, max(1, int(duration / 120)))
     chunk_dur = duration / n_chunks
     overlap = _CHUNK_OVERLAP
     frames_per_sec = _SAMPLE_RATE / 512
 
-    # Step 2: Extract audio chunks in parallel
+    # Step 3: Extract audio chunks from the full WAV in parallel (very fast seek in WAV)
     t1 = time.time()
-    logger.info(f"Extracting audio in {n_chunks} parallel chunks (~{chunk_dur:.0f}s each)...")
+    logger.info(f"Extracting {n_chunks} parallel audio chunks (~{chunk_dur:.0f}s each) from WAV...")
 
     chunk_meta: list[Tuple[int, float, str]] = []  # (idx, real_start, path)
     extract_args = []
+    audio_path_str = str(audio_path)
     for i in range(n_chunks):
         c_start = max(0.0, i * chunk_dur - (overlap if i > 0 else 0))
         c_end = min(duration, (i + 1) * chunk_dur + (overlap if i < n_chunks - 1 else 0))
         c_dur = c_end - c_start
         out_p = str(work_dir / f"audio_chunk_{i:02d}.wav")
-        extract_args.append((str(video_path), c_start, c_dur, out_p))
+        # Use audio_path (WAV) as input for faster extraction than from video
+        cmd = [
+            FFMPEG_BIN, "-y",
+            "-ss", f"{c_start:.3f}",
+            "-t", f"{c_dur:.3f}",
+            "-i", audio_path_str,
+            "-acodec", "copy", # Just copy since it's already PCM
+            out_p,
+        ]
+        extract_args.append(cmd)
         chunk_meta.append((i, c_start, out_p))
 
+    def _run_cmd(cmd):
+        subprocess.run(cmd, capture_output=True, check=True, timeout=60)
+
     with ThreadPoolExecutor(max_workers=NUM_WORKERS) as pool:
-        futs = [pool.submit(_extract_audio_chunk, *args) for args in extract_args]
-        for f in futs:
-            f.result()
+        list(pool.map(_run_cmd, extract_args))
 
-    logger.info(f"[TIMING] Parallel audio extraction ({n_chunks} chunks): {time.time() - t1:.1f}s")
+    logger.info(f"[TIMING] Parallel audio extraction from WAV: {time.time() - t1:.1f}s")
 
-    # Step 3: Analyse each chunk with librosa in parallel (CPU-bound → ProcessPool)
+    # Step 4: Analyse each chunk with librosa in parallel (CPU-bound → ProcessPool)
     t2 = time.time()
     logger.info(f"Analyzing {n_chunks} audio chunks with librosa (ProcessPool)...")
 
@@ -449,7 +465,7 @@ def score_video(video_path: Path, work_dir: Path) -> Tuple[List[ScoredSegment], 
 
     logger.info(f"[TIMING] Parallel librosa analysis ({n_chunks} chunks): {time.time() - t2:.1f}s")
 
-    # Step 4: Stitch feature arrays
+    # Step 5: Stitch feature arrays
     all_rms, all_onset, all_flux = [], [], []
     for i in range(n_chunks):
         rms_c, onset_c, flux_c, _ = chunk_results[i]
@@ -473,18 +489,18 @@ def score_video(video_path: Path, work_dir: Path) -> Tuple[List[ScoredSegment], 
         except OSError:
             pass
 
-    # Step 5: Score audio windows
+    # Step 6: Score audio windows
     logger.info("Scoring audio windows...")
     audio_windows = _score_audio_windows(rms, onset_env, spectral_flux, duration)
     logger.info(f"Generated {len(audio_windows)} audio windows")
 
-    # Step 6: Visual analysis on top audio windows (already parallel)
+    # Step 7: Visual analysis on top audio windows (already parallel)
     t3 = time.time()
     logger.info("Analyzing visual features (OpenCV) on top audio windows...")
     scored_windows = _analyze_visual_windows(video_path, audio_windows)
     logger.info(f"[TIMING] Visual analysis: {time.time() - t3:.1f}s")
 
-    # Step 7: Normalize and combine
+    # Step 8: Normalize and combine
     audio_scores = [w[2] for w in scored_windows]
     visual_scores = [w[3] for w in scored_windows]
     norm_audio = _normalize(audio_scores)
@@ -501,7 +517,7 @@ def score_video(video_path: Path, work_dir: Path) -> Tuple[List[ScoredSegment], 
             total_score=round(total, 4),
         ))
 
-    # Step 8: Sort by total score, take top N
+    # Step 9: Sort by total score, take top N
     segments.sort(key=lambda s: s.total_score, reverse=True)
     top = segments[:TOP_PRESCORE]
 
@@ -509,12 +525,6 @@ def score_video(video_path: Path, work_dir: Path) -> Tuple[List[ScoredSegment], 
         f"Top {len(top)} segments selected (scores: "
         f"{top[0].total_score:.3f} ... {top[-1].total_score:.3f})"
     )
-
-    # Step 9: Extract full audio for Whisper (needed later)
-    t4 = time.time()
-    audio_path = work_dir / "audio_full.wav"
-    _extract_audio(video_path, audio_path)
-    logger.info(f"[TIMING] Full audio for Whisper: {time.time() - t4:.1f}s")
 
     logger.info(f"[TIMING] Total scoring: {time.time() - t0:.1f}s")
     return top, audio_path, duration

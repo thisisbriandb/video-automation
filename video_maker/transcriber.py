@@ -130,6 +130,8 @@ def transcribe_segment_from_file(audio_file: Path) -> List[SubtitleWord]:
 
 # ── Parallel Whisper (CPU workers) ─────────────────────────────────
 
+_worker_model = None
+
 
 def _transcribe_one_file_cpu(
     audio_path_str: str, whisper_model_name: str
@@ -139,9 +141,12 @@ def _transcribe_one_file_cpu(
     Top-level function (pickleable) for ProcessPoolExecutor.
     Returns list of dicts [{start, end, word}, ...] (not Pydantic — must be pickleable).
     """
+    global _worker_model
     import whisper as _whisper
-    _m = _whisper.load_model(whisper_model_name, device="cpu")
-    result = _m.transcribe(
+    if _worker_model is None:
+        _worker_model = _whisper.load_model(whisper_model_name, device="cpu")
+
+    result = _worker_model.transcribe(
         audio_path_str,
         task="transcribe",
         language="fr",

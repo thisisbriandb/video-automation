@@ -86,10 +86,9 @@ def render_clip(
     prefix = f"[{job_id}] " if job_id else ""
     logger.info(f"{prefix}Rendering clip: {segment.start:.1f}s → {segment.end:.1f}s ({duration:.1f}s)")
 
-    # ── Probe real source dimensions ────────────────────────────────
-    probe = _probe_video(source_path)
-    real_w = probe["width"]
-    real_h = probe["height"]
+    # ── Use provided source dimensions ──────────────────────────────
+    real_w = src_width
+    real_h = src_height
     logger.info(f"{prefix}Source video: {real_w}x{real_h}")
 
     # ── Compute crop window (9:16 from source) ─────────────────────
@@ -128,8 +127,8 @@ def render_clip(
     # Static crop
     filters.append(f"crop={crop_w}:{crop_h}:{crop_x}:{crop_y}")
 
-    # Scale to 1080x1920
-    filters.append(f"scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:flags=lanczos")
+    # Scale to 1080x1920 (use bicubic for better speed/quality balance than lanczos on CPU)
+    filters.append(f"scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:flags=bicubic")
 
     # Pixel format (must come before subtitles)
     filters.append("format=yuv420p")
@@ -143,16 +142,18 @@ def render_clip(
     vf = ",".join(filters)
 
     # ── Build FFmpeg command ────────────────────────────────────────
+    # Note: -threads 2 is a safe limit to avoid oversubscription when running parallel workers
     cmd = [
         FFMPEG_BIN,
         "-y",
+        "-threads", "2",
         "-ss", f"{segment.start:.3f}",
         "-t", f"{duration:.3f}",
         "-i", str(source_path),
         "-vf", vf,
         "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
         "-c:v", "libx264",
-        "-preset", "medium",
+        "-preset", "veryfast",
         "-crf", "23",
         "-c:a", "aac",
         "-b:a", "128k",

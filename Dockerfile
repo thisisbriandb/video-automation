@@ -39,7 +39,6 @@ RUN mkdir -p workdir output
 
 # Railway sets PORT env var
 ENV PORT=8001
-ENV NUM_WORKERS=4
 ENV WHISPER_MODEL=small
 ENV FFMPEG_DIR=/usr/bin
 ENV YOUTUBE_COOKIES_FILE=/app/cookies.txt

@@ -75,8 +75,11 @@ if _yt_api_path not in sys.path:
 
 import yt_dlp
 
+# POT server base URL (bgutil PO Token provider)
+_POT_SERVER_URL = os.environ.get("POT_SERVER_URL", "http://127.0.0.1:4416")
+
 def _get_auth_opts() -> dict:
-    """Return yt-dlp auth options (cookies + proxy if available)."""
+    """Return yt-dlp auth options (cookies + proxy + PO token config)."""
     opts = {}
     cookies = _get_cookies_path()
     if cookies:
@@ -84,6 +87,8 @@ def _get_auth_opts() -> dict:
     proxy = os.environ.get("YOUTUBE_PROXY", "").strip()
     if proxy:
         opts["proxy"] = proxy
+    # Tell yt-dlp to use the bgutil HTTP server for PO token generation
+    opts["extractor_args"] = {"youtube": {"getpot_bgutil_baseurl": [_POT_SERVER_URL]}}
     return opts
 
 
@@ -101,6 +106,13 @@ try:
     logger.info(f"yt-dlp-ejs installed: {_ejs_ver}")
 except ImportError:
     logger.warning("yt-dlp-ejs NOT installed — EJS challenge solver scripts missing!")
+
+# Check if bgutil PO Token plugin is loaded by yt-dlp
+try:
+    from yt_dlp_plugins.extractor import getpot_bgutil_http
+    logger.info(f"bgutil POT plugin loaded OK (server: {_POT_SERVER_URL})")
+except ImportError:
+    logger.warning("bgutil POT plugin NOT found — PO Token generation will NOT work!")
 
 for _rt_name in ("deno", "node", "bun"):
     _rt_path = shutil.which(_rt_name)
@@ -181,7 +193,7 @@ def download_video(url: str, job_id: str) -> dict:
     # ── Step 1: Extract info (skip format processing) ─────────────
     logger.info(f"[{job_id}] Extracting video info for: {url}")
     info_opts: dict = {
-        "quiet": True, "no_warnings": True,
+        "quiet": False, "no_warnings": False, "verbose": True,
         "ffmpeg_location": str(FFMPEG_DIR),
         **_get_auth_opts(),
     }

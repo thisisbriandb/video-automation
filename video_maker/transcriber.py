@@ -184,9 +184,24 @@ def transcribe_files_parallel(
         results: dict[int, List[SubtitleWord]] = {}
         for rank, path in audio_files.items():
             results[rank] = transcribe_segment_from_file(path)
+            logger.info(f"  [{rank + 1}/{n_files}] {len(results[rank])} words")
         return results
 
-    # CPU parallel path
+    # On small containers (Railway etc.), ProcessPoolExecutor spawns N copies of
+    # the Whisper model, each ~500MB+.  With ≤2 workers we stay sequential to
+    # avoid OOM / silent failures that produce empty word lists (= no subtitles).
+    if NUM_WORKERS <= 2:
+        logger.info(
+            f"Whisper: CPU sequential mode ({n_files} files, model: {WHISPER_MODEL}) "
+            f"— NUM_WORKERS={NUM_WORKERS}, skipping ProcessPool to save memory"
+        )
+        results = {}
+        for rank, path in audio_files.items():
+            results[rank] = transcribe_segment_from_file(path)
+            logger.info(f"  [{rank + 1}/{n_files}] {len(results[rank])} words")
+        return results
+
+    # CPU parallel path (only when we have enough workers / RAM)
     n_workers = min(n_files, max(2, NUM_WORKERS // 2))
     logger.info(
         f"Whisper: No GPU — transcribing {n_files} files in parallel "

@@ -28,12 +28,7 @@ def _default_ffmpeg_dir() -> str:
 
 FFMPEG_DIR: Path = Path(_get("FFMPEG_DIR", _default_ffmpeg_dir()))
 
-import os
 import multiprocessing
-from pathlib import Path
-from dotenv import dotenv_values
-
-# ... (rest of imports)
 
 # Pipeline
 MAX_CLIPS: int = int(_get("MAX_CLIPS", "10"))
@@ -45,9 +40,10 @@ SCORING_WINDOW: float = float(_get("SCORING_WINDOW", "30"))  # seconds per analy
 SCORING_HOP: float = float(_get("SCORING_HOP", "10"))  # overlap hop between windows
 TOP_PRESCORE: int = int(_get("TOP_PRESCORE", "40"))  # candidate segments before merge+expand
 
-# Auto-detect CPU count, but allow manual override
-_default_workers = str(multiprocessing.cpu_count())
-NUM_WORKERS: int = int(_get("NUM_WORKERS", _default_workers))  # parallel workers (render, visual scoring)
+# Worker count: default 2 for cloud containers (Railway etc.) where cpu_count()
+# returns the host's vCPUs (8-16) not the allocated amount (1-2).
+# Override via NUM_WORKERS env var for beefier machines.
+NUM_WORKERS: int = int(_get("NUM_WORKERS", "2"))
 
 # Subtitles
 SUBTITLE_WORDS_PER_CHUNK: int = int(_get("SUBTITLE_WORDS_PER_CHUNK", "3"))

@@ -21,9 +21,8 @@ from video_maker.utils import logger, cleanup_directory
 # In-memory job store
 _jobs: dict[str, PipelineStatus] = {}
 
-# Thread pool for blocking I/O (Main pipeline executor)
-# On 48vCPU, we can safely allow 4-6 concurrent videos at once
-_executor = ThreadPoolExecutor(max_workers=4)
+# Thread pool for blocking I/O (one pipeline at a time on small containers)
+_executor = ThreadPoolExecutor(max_workers=2)
 
 
 def get_job(job_id: str) -> PipelineStatus | None:
@@ -130,7 +129,13 @@ def _run_pipeline_sync(job_id: str, youtube_url: str) -> None:
             return
 
         num_clips = len(analysis.clips)
-        logger.info(f"[{job_id}] {num_clips} clips identified, starting parallel render...")
+        for i, clip in enumerate(analysis.clips):
+            logger.info(
+                f"[{job_id}] Clip {i + 1}/{num_clips}: "
+                f"{clip.start:.1f}s→{clip.end:.1f}s, "
+                f"{len(clip.words)} subtitle words"
+            )
+        logger.info(f"[{job_id}] {num_clips} clips identified, starting render (workers={NUM_WORKERS})...")
 
         # Probe video dimensions once (not in each worker)
         probe = _probe_video(video_path)

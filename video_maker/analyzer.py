@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import List
 
-from video_maker.config import MAX_CLIPS, CLIP_MIN_DURATION, NUM_WORKERS
+from video_maker.config import MAX_CLIPS, CLIP_MIN_DURATION, NUM_WORKERS, WHISPER_MODEL
 from video_maker.models import (
     AnalysisResult,
     ClipSegment,
@@ -18,7 +18,7 @@ from video_maker.scorer import (
     _merge_overlapping,
 )
 from video_maker.transcriber import (
-    transcribe_files_parallel,
+    transcribe_segment_from_file,
     parse_youtube_json3,
     extract_words_for_clip,
 )
@@ -89,7 +89,7 @@ def analyze_video(
         logger.info(f"YouTube subtitle extraction done in {time.time() - t_subs:.1f}s")
     else:
         # ── Slow path: Whisper transcription ───────────────────────
-        logger.info(f"No YouTube subs available — falling back to Whisper")
+        logger.info(f"No YouTube subs available — falling back to Whisper (model: {WHISPER_MODEL})")
 
         logger.info(f"Pre-extracting {n_clips} audio segments with {NUM_WORKERS} workers...")
         t_extract = time.time()
@@ -109,8 +109,23 @@ def analyze_video(
 
         logger.info(f"Audio extraction done ({time.time() - t_extract:.1f}s)")
 
-        logger.info(f"Transcribing {n_clips} final clips with Whisper...")
-        transcriptions = transcribe_files_parallel(audio_files)
+        # Total Whisper budget: 10 minutes max for all clips combined
+        WHISPER_TOTAL_BUDGET = int(__import__('os').environ.get('WHISPER_TOTAL_BUDGET', '600'))
+        logger.info(f"Transcribing {n_clips} final clips with Whisper (budget: {WHISPER_TOTAL_BUDGET}s)...")
+        transcriptions: dict[int, list] = {}
+
+        t_whisper = time.time()
+        for rank, path in audio_files.items():
+            elapsed = time.time() - t_whisper
+            remaining = WHISPER_TOTAL_BUDGET - elapsed
+            if remaining < 30:
+                logger.warning(
+                    f"Whisper budget exhausted ({elapsed:.0f}s / {WHISPER_TOTAL_BUDGET}s) "
+                    f"— skipping remaining {len(audio_files) - len(transcriptions)} clips"
+                )
+                break
+            transcriptions[rank] = transcribe_segment_from_file(path)
+            logger.info(f"  [{rank + 1}/{n_clips}] {len(transcriptions[rank])} words ({time.time() - t_whisper:.0f}s elapsed)")
 
         clips = []
         for rank, seg in enumerate(final_segments):
@@ -132,7 +147,11 @@ def analyze_video(
             if audio_file and audio_file.exists():
                 audio_file.unlink()
 
-        logger.info(f"Whisper transcription done: {n_clips} clips in {time.time() - t_subs:.1f}s")
+        n_with_subs = sum(1 for c in clips if c.words)
+        logger.info(
+            f"Whisper done: {n_with_subs}/{n_clips} clips have subtitles "
+            f"({time.time() - t_subs:.1f}s total)"
+        )
 
     clips.sort(key=lambda c: c.start)
     logger.info(f"Analysis complete: {len(clips)} clips ready for rendering")

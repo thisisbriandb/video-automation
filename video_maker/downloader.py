@@ -265,6 +265,9 @@ def download_video(url: str, job_id: str) -> dict:
     logger.info(f"[{job_id}] Download complete: {size_mb:.1f} MB")
 
     # ── Step 3: Download YouTube subtitles (word-level JSON3) ──────
+    # Wait a few seconds after heavy download to avoid YouTube 429 rate-limit
+    logger.info(f"[{job_id}] Waiting 5s before subtitle fetch (avoid 429)...")
+    time.sleep(5)
     logger.info(f"[{job_id}] Fetching YouTube subtitles...")
     subs_path = _download_subtitles(url, job_dir)
     result["subs_path"] = subs_path

@@ -1,13 +1,17 @@
 import json
 import subprocess
+import threading
 import torch
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import List, Tuple
 
 from video_maker.config import FFMPEG_DIR, WHISPER_MODEL, NUM_WORKERS
 from video_maker.models import SubtitleLine, SubtitleWord, ScoredSegment
 from video_maker.utils import logger
+
+# Max seconds to spend on a single clip transcription before giving up
+WHISPER_TIMEOUT = int(__import__('os').environ.get('WHISPER_TIMEOUT', '120'))
 
 import sys as _sys
 FFMPEG_BIN = str(FFMPEG_DIR / ("ffmpeg.exe" if _sys.platform == "win32" else "ffmpeg"))
@@ -97,36 +101,58 @@ def transcribe_segment_from_file(audio_file: Path) -> List[SubtitleWord]:
     """Transcribe a pre-extracted audio file directly with Whisper (single model).
 
     Skips the FFmpeg extraction step — audio_file must already be 16kHz mono WAV.
+    Uses a thread-based timeout to prevent infinite hangs on slow CPUs.
     """
     model = _get_model()
-    logger.info(f"Transcribing {audio_file.name}...")
+    logger.info(f"Transcribing {audio_file.name} (timeout={WHISPER_TIMEOUT}s)...")
 
-    try:
-        result = model.transcribe(
-            str(audio_file),
-            task="transcribe",
-            language="fr",
-            word_timestamps=True,
-            verbose=False,
-        )
+    # Run transcription in a thread so we can enforce a timeout
+    result_container: list = []
+    error_container: list = []
 
-        words: List[SubtitleWord] = []
-        for seg in result.get("segments", []):
-            for w in seg.get("words", []):
-                text = w.get("word", "").strip()
-                if text:
-                    words.append(SubtitleWord(
-                        start=round(w["start"], 3),
-                        end=round(w["end"], 3),
-                        word=text,
-                    ))
+    def _run():
+        try:
+            r = model.transcribe(
+                str(audio_file),
+                task="transcribe",
+                language="fr",
+                word_timestamps=True,
+                verbose=False,
+            )
+            result_container.append(r)
+        except Exception as e:
+            error_container.append(e)
 
-        logger.info(f"Transcription complete: {len(words)} words")
-        return words
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    t.join(timeout=WHISPER_TIMEOUT)
 
-    except Exception as e:
-        logger.error(f"Transcription failed for {audio_file.name}: {e}")
+    if t.is_alive():
+        logger.warning(f"Whisper TIMEOUT ({WHISPER_TIMEOUT}s) for {audio_file.name} — skipping")
         return []
+
+    if error_container:
+        logger.error(f"Transcription failed for {audio_file.name}: {error_container[0]}")
+        return []
+
+    if not result_container:
+        logger.error(f"Transcription returned no result for {audio_file.name}")
+        return []
+
+    result = result_container[0]
+    words: List[SubtitleWord] = []
+    for seg in result.get("segments", []):
+        for w in seg.get("words", []):
+            text = w.get("word", "").strip()
+            if text:
+                words.append(SubtitleWord(
+                    start=round(w["start"], 3),
+                    end=round(w["end"], 3),
+                    word=text,
+                ))
+
+    logger.info(f"Transcription complete: {len(words)} words")
+    return words
 
 
 # ── Parallel Whisper (CPU workers) ─────────────────────────────────

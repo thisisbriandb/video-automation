@@ -78,12 +78,17 @@ import yt_dlp
 # POT server base URL (bgutil PO Token provider)
 _POT_SERVER_URL = os.environ.get("POT_SERVER_URL", "http://127.0.0.1:4416")
 
+# Runtime flag: set to True when expired cookies cause bot detection (skip for rest of session)
+_cookies_disabled = False
+
 def _get_auth_opts() -> dict:
     """Return yt-dlp auth options (cookies + proxy + PO token config)."""
+    global _cookies_disabled
     opts = {}
-    cookies = _get_cookies_path()
-    if cookies:
-        opts["cookiefile"] = cookies
+    if not _cookies_disabled:
+        cookies = _get_cookies_path()
+        if cookies:
+            opts["cookiefile"] = cookies
     proxy = os.environ.get("YOUTUBE_PROXY", "").strip()
     if proxy:
         opts["proxy"] = proxy
@@ -107,11 +112,14 @@ try:
 except ImportError:
     logger.warning("yt-dlp-ejs NOT installed — EJS challenge solver scripts missing!")
 
-# Check if bgutil PO Token plugin is loaded by yt-dlp
+# Check if bgutil PO Token plugin is installed (don't import — that double-registers the provider)
 try:
-    from yt_dlp_plugins.extractor import getpot_bgutil_http
-    logger.info(f"bgutil POT plugin loaded OK (server: {_POT_SERVER_URL})")
-except ImportError:
+    _pot_check = subprocess.check_output(
+        ["pip", "show", "bgutil-ytdlp-pot-provider"], text=True, stderr=subprocess.DEVNULL,
+    )
+    _pot_ver = [l.split(":", 1)[1].strip() for l in _pot_check.splitlines() if l.startswith("Version:")]
+    logger.info(f"bgutil POT plugin installed: {_pot_ver[0] if _pot_ver else '?'} (server: {_POT_SERVER_URL})")
+except Exception:
     logger.warning("bgutil POT plugin NOT found — PO Token generation will NOT work!")
 
 for _rt_name in ("deno", "node", "bun"):
@@ -192,14 +200,26 @@ def download_video(url: str, job_id: str) -> dict:
 
     # ── Step 1: Extract info (skip format processing) ─────────────
     logger.info(f"[{job_id}] Extracting video info for: {url}")
+    auth = _get_auth_opts()
     info_opts: dict = {
         "quiet": False, "no_warnings": False, "verbose": True,
         "ffmpeg_location": str(FFMPEG_DIR),
-        **_get_auth_opts(),
+        **auth,
     }
     logger.info(f"Auth: {'cookies' if 'cookiefile' in info_opts else 'none'}")
-    with yt_dlp.YoutubeDL(info_opts) as ydl:
-        info = ydl.extract_info(url, download=False, process=False)
+    try:
+        with yt_dlp.YoutubeDL(info_opts) as ydl:
+            info = ydl.extract_info(url, download=False, process=False)
+    except yt_dlp.utils.DownloadError as e:
+        if "Sign in to confirm" in str(e) and "cookiefile" in info_opts:
+            global _cookies_disabled
+            _cookies_disabled = True
+            logger.warning(f"[{job_id}] Bot detection with cookies — retrying WITHOUT cookies (PO token only)...")
+            info_opts.pop("cookiefile", None)
+            with yt_dlp.YoutubeDL(info_opts) as ydl:
+                info = ydl.extract_info(url, download=False, process=False)
+        else:
+            raise
 
     # Log available formats for debugging
     formats = info.get("formats") or []

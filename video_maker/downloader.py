@@ -192,7 +192,7 @@ def _download_subtitles(url: str, job_dir: Path) -> Path | None:
     return None
 
 
-def download_video(url: str, job_id: str) -> dict:
+def download_video(url: str, job_id: str, progress_callback=None) -> dict:
     """Download a YouTube video (high-res only).
 
     Returns:
@@ -258,6 +258,7 @@ def download_video(url: str, job_id: str) -> dict:
             "bestvideo[height<=1080]+bestaudio/"
             "bestvideo+bestaudio/best"
         ),
+        progress_callback=progress_callback,
     )
 
     result["video_path"] = video_path
@@ -275,24 +276,37 @@ def download_video(url: str, job_id: str) -> dict:
     return result
 
 
-def _dl_progress_hook(d: dict) -> None:
-    """Log download progress at meaningful intervals."""
-    if d.get("status") == "downloading":
-        pct = d.get("_percent_str", "?").strip()
-        speed = d.get("_speed_str", "?").strip()
-        eta = d.get("_eta_str", "?").strip()
-        # Log every ~10%
-        try:
-            pct_val = float(d.get("downloaded_bytes", 0)) / max(float(d.get("total_bytes", 1)), 1) * 100
-            if int(pct_val) % 10 < 2:  # roughly every 10%
-                logger.info(f"Download: {pct} at {speed}, ETA {eta}")
-        except (ValueError, TypeError):
-            pass
-    elif d.get("status") == "finished":
-        logger.info(f"Download finished, merging/converting...")
+def _make_progress_hook(progress_callback=None):
+    """Create a yt-dlp progress hook, optionally forwarding percentage to a callback."""
+    _last_logged = [0]
+
+    def _hook(d: dict) -> None:
+        if d.get("status") == "downloading":
+            try:
+                total = d.get("total_bytes") or d.get("total_bytes_estimate", 0)
+                downloaded = d.get("downloaded_bytes", 0)
+                if total > 0:
+                    pct_val = downloaded / total * 100
+                    # Callback every ~2%
+                    if progress_callback and int(pct_val) >= _last_logged[0] + 2:
+                        _last_logged[0] = int(pct_val)
+                        progress_callback(pct_val)
+                    # Log every ~10%
+                    if int(pct_val) % 10 < 2 and int(pct_val) > _last_logged[0] - 3:
+                        speed = d.get("_speed_str", "?").strip()
+                        eta = d.get("_eta_str", "?").strip()
+                        logger.info(f"Download: {pct_val:.0f}% at {speed}, ETA {eta}")
+            except (ValueError, TypeError):
+                pass
+        elif d.get("status") == "finished":
+            logger.info("Download finished, merging/converting...")
+            if progress_callback:
+                progress_callback(100)
+
+    return _hook
 
 
-def _download_with_format(url: str, output_path: Path, format_selector: str) -> None:
+def _download_with_format(url: str, output_path: Path, format_selector: str, progress_callback=None) -> None:
     """Download a video with a specific format selector."""
     ydl_opts = {
         "format": format_selector,
@@ -313,7 +327,7 @@ def _download_with_format(url: str, output_path: Path, format_selector: str) -> 
         "sleep_interval": 1,
         "max_sleep_interval": 5,
         "sleep_interval_requests": 1,
-        "progress_hooks": [_dl_progress_hook],
+        "progress_hooks": [_make_progress_hook(progress_callback)],
         "postprocessors": [
             {
                 "key": "FFmpegVideoConvertor",

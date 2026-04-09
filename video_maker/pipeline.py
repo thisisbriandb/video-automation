@@ -1,6 +1,7 @@
 """Pipeline orchestrator: download → local scoring → whisper → render (parallel)."""
 
 import asyncio
+import re
 import uuid
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
@@ -20,9 +21,16 @@ from video_maker.utils import logger, cleanup_directory
 
 # In-memory job store
 _jobs: dict[str, PipelineStatus] = {}
+_job_version: dict[str, int] = {}  # incremented on each update, for SSE
 
 # Thread pool for blocking I/O (one pipeline at a time on small containers)
 _executor = ThreadPoolExecutor(max_workers=2)
+
+
+def _extract_video_id(url: str) -> str:
+    """Extract YouTube video ID from various URL formats."""
+    m = re.search(r'(?:v=|/v/|youtu\.be/|/shorts/)([a-zA-Z0-9_-]{11})', url)
+    return m.group(1) if m else ""
 
 
 def get_job(job_id: str) -> PipelineStatus | None:
@@ -36,10 +44,11 @@ def list_jobs() -> list[PipelineStatus]:
 
 
 def _update_job(job_id: str, **kwargs) -> None:
-    """Update job status fields."""
+    """Update job status fields and bump version for SSE."""
     if job_id in _jobs:
         for k, v in kwargs.items():
             setattr(_jobs[job_id], k, v)
+        _job_version[job_id] = _job_version.get(job_id, 0) + 1
 
 
 # ── Single-clip render worker ──────────────────────────────────────
@@ -106,15 +115,41 @@ def _run_pipeline_sync(job_id: str, youtube_url: str) -> None:
     output_job_dir = OUTPUT_DIR / job_id
     output_job_dir.mkdir(parents=True, exist_ok=True)
 
+    video_id = _extract_video_id(youtube_url)
+
     try:
         # ── Step 1: Download (high-res only) ────────────────────────
-        _update_job(job_id, status=JobStatus.DOWNLOADING, progress="Downloading video...")
-        dl_result = download_video(youtube_url, job_id)
+        def _on_dl_progress(pct):
+            _update_job(
+                job_id,
+                percent=min(30, int(pct * 0.30)),
+                progress=f"T\u00e9l\u00e9chargement... {int(pct)}%",
+            )
+
+        _update_job(
+            job_id,
+            status=JobStatus.DOWNLOADING,
+            progress="T\u00e9l\u00e9chargement...",
+            percent=1,
+            video_id=video_id,
+        )
+        dl_result = download_video(youtube_url, job_id, progress_callback=_on_dl_progress)
         video_path = dl_result["video_path"]
+        _update_job(
+            job_id,
+            percent=32,
+            progress="T\u00e9l\u00e9chargement termin\u00e9",
+            video_title=dl_result.get("title", ""),
+        )
         logger.info(f"[{job_id}] Download complete: {dl_result['title']}")
 
         # ── Step 2: Local analysis (scoring + Whisper + ranking) ────
-        _update_job(job_id, status=JobStatus.ANALYZING, progress="Analyzing video locally (audio + visual + transcription)...")
+        _update_job(
+            job_id,
+            status=JobStatus.ANALYZING,
+            progress="Analyse audio + visuelle...",
+            percent=35,
+        )
         analysis = analyze_video(
             video_path=video_path,
             work_dir=job_dir,
@@ -133,7 +168,7 @@ def _run_pipeline_sync(job_id: str, youtube_url: str) -> None:
         for i, clip in enumerate(analysis.clips):
             logger.info(
                 f"[{job_id}] Clip {i + 1}/{num_clips}: "
-                f"{clip.start:.1f}s→{clip.end:.1f}s, "
+                f"{clip.start:.1f}s\u2192{clip.end:.1f}s, "
                 f"{len(clip.words)} subtitle words"
             )
         logger.info(f"[{job_id}] {num_clips} clips identified, starting render (workers={NUM_WORKERS})...")
@@ -143,14 +178,29 @@ def _run_pipeline_sync(job_id: str, youtube_url: str) -> None:
         src_w = probe["width"]
         src_h = probe["height"]
 
-        # ── Step 3: Render clips in parallel ────────────────────────
+        # ── Step 3: Render clips in parallel ────────────────────
         _update_job(
             job_id,
             status=JobStatus.RENDERING,
-            progress=f"Rendering {num_clips} clips with {NUM_WORKERS} workers...",
+            progress=f"Rendu clip 0/{num_clips}...",
+            percent=65,
         )
 
         clip_responses = []
+        rendered_count = [0]  # mutable for closure
+
+        def _on_clip_done(fut):
+            res = fut.result()
+            if res is not None:
+                clip_responses.append(res)
+            rendered_count[0] += 1
+            pct = 65 + int(30 * rendered_count[0] / num_clips)
+            _update_job(
+                job_id,
+                percent=pct,
+                progress=f"Rendu clip {rendered_count[0]}/{num_clips}...",
+            )
+
         with ThreadPoolExecutor(max_workers=NUM_WORKERS) as render_pool:
             futures = []
             for idx, segment in enumerate(analysis.clips):
@@ -164,27 +214,29 @@ def _run_pipeline_sync(job_id: str, youtube_url: str) -> None:
                     src_h,
                     job_id,
                 )
+                fut.add_done_callback(_on_clip_done)
                 futures.append(fut)
 
+            # Wait for all
             for fut in futures:
-                result = fut.result()
-                if result is not None:
-                    clip_responses.append(result)
+                fut.result()
 
         if not clip_responses:
             _update_job(job_id, status=JobStatus.FAILED, error="All clip renders failed.")
             return
 
-        # ── Step 4: Cleanup temp files ──────────────────────────────
+        # ── Step 4: Cleanup temp files ──────────────────────────
+        _update_job(job_id, percent=97, progress="Nettoyage...")
         logger.info(f"[{job_id}] Cleaning up temp files...")
         cleanup_directory(job_dir)
 
-        # ── Done ────────────────────────────────────────────────────
+        # ── Done ────────────────────────────────────────
         total_duration = sum(c.duration for c in clip_responses)
         _update_job(
             job_id,
             status=JobStatus.COMPLETED,
-            progress=f"Done! {len(clip_responses)} clips ready ({total_duration:.0f}s total).",
+            percent=100,
+            progress=f"Termin\u00e9 ! {len(clip_responses)} clips ({total_duration:.0f}s au total)",
             clips=clip_responses,
         )
         logger.info(f"[{job_id}] Pipeline complete: {len(clip_responses)} clips rendered")

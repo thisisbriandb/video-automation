@@ -74,5 +74,8 @@ class PipelineStatus(BaseModel):
     job_id: str
     status: JobStatus
     progress: str = ""
+    percent: int = 0
+    video_id: str = ""
+    video_title: str = ""
     error: Optional[str] = None
     clips: list[ClipResponse] = Field(default_factory=list)

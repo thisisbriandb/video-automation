@@ -20,6 +20,7 @@
             --success: #10b981;
             --error: #ef4444;
             --warning: #f59e0b;
+            --blue: #3b82f6;
             --radius: 12px;
         }
 
@@ -33,247 +34,158 @@
             align-items: center;
         }
 
-        /* ── Header ─────────────────────────────── */
-        header {
-            width: 100%;
-            padding: 24px 0 0;
-            text-align: center;
-        }
+        header { width: 100%; padding: 24px 0 0; text-align: center; }
         header h1 {
-            font-size: 1.8rem;
-            font-weight: 800;
+            font-size: 1.8rem; font-weight: 800;
             background: linear-gradient(135deg, var(--accent-light), #f472b6);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
         }
-        header p {
-            color: var(--text-dim);
-            font-size: 0.9rem;
-            margin-top: 6px;
-        }
+        header p { color: var(--text-dim); font-size: 0.9rem; margin-top: 6px; }
 
-        /* ── Main container ─────────────────────── */
         main {
-            width: 100%;
-            max-width: 620px;
+            width: 100%; max-width: 660px;
             padding: 32px 20px 60px;
-            display: flex;
-            flex-direction: column;
-            gap: 24px;
+            display: flex; flex-direction: column; gap: 20px;
         }
 
-        /* ── Card ───────────────────────────────── */
         .card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 24px;
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 24px;
         }
 
-        /* ── Input group ────────────────────────── */
-        .input-group {
-            display: flex;
-            gap: 10px;
-        }
+        .input-group { display: flex; gap: 10px; }
         .input-group input {
-            flex: 1;
-            padding: 14px 16px;
-            border-radius: var(--radius);
-            border: 1px solid var(--border);
-            background: var(--surface2);
-            color: var(--text);
-            font-size: 0.95rem;
-            outline: none;
-            transition: border-color 0.2s;
+            flex: 1; padding: 14px 16px; border-radius: var(--radius);
+            border: 1px solid var(--border); background: var(--surface2);
+            color: var(--text); font-size: 0.95rem; outline: none; transition: border-color 0.2s;
         }
         .input-group input::placeholder { color: var(--text-dim); }
         .input-group input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
 
         .btn {
-            padding: 14px 28px;
-            border-radius: var(--radius);
-            border: none;
-            background: var(--accent);
-            color: #fff;
-            font-size: 0.95rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-            white-space: nowrap;
+            padding: 14px 28px; border-radius: var(--radius); border: none;
+            background: var(--accent); color: #fff; font-size: 0.95rem;
+            font-weight: 600; cursor: pointer; transition: all 0.2s; white-space: nowrap;
         }
         .btn:hover { background: #6d28d9; transform: translateY(-1px); }
         .btn:active { transform: translateY(0); }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
-        /* ── Status section ─────────────────────── */
-        #status-section { display: none; }
-        #status-section.visible { display: block; }
+        /* ── Hidden sections ──────────────────── */
+        .hidden { display: none !important; }
 
-        .status-header {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin-bottom: 16px;
+        /* ── YouTube embed ─────────────────────── */
+        .yt-embed {
+            width: 100%; aspect-ratio: 16/9; border-radius: var(--radius);
+            overflow: hidden; background: #000; margin-bottom: 16px;
         }
-        .status-badge {
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.78rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        .badge-downloading { background: rgba(124,58,237,0.15); color: var(--accent-light); }
-        .badge-analyzing { background: rgba(245,158,11,0.15); color: var(--warning); }
-        .badge-rendering { background: rgba(59,130,246,0.15); color: #60a5fa; }
-        .badge-completed { background: rgba(16,185,129,0.15); color: var(--success); }
-        .badge-failed { background: rgba(239,68,68,0.15); color: var(--error); }
-        .badge-queued { background: rgba(136,136,160,0.15); color: var(--text-dim); }
-
-        .progress-text {
-            color: var(--text-dim);
-            font-size: 0.88rem;
+        .yt-embed iframe { width: 100%; height: 100%; border: none; }
+        .video-title {
+            font-size: 0.88rem; color: var(--text-dim); margin-top: 8px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
 
-        /* Progress bar */
-        .progress-bar-bg {
-            width: 100%;
-            height: 4px;
-            border-radius: 2px;
-            background: var(--surface2);
-            overflow: hidden;
+        /* ── Steps ─────────────────────────────── */
+        .steps {
+            display: flex; gap: 0; margin-bottom: 20px;
+            overflow-x: auto; padding-bottom: 4px;
+        }
+        .step {
+            display: flex; align-items: center; gap: 8px;
+            padding: 8px 14px; font-size: 0.8rem; font-weight: 600;
+            color: var(--text-dim); white-space: nowrap; position: relative;
+        }
+        .step::after {
+            content: ''; width: 20px; height: 1px; background: var(--border); margin-left: 6px;
+        }
+        .step:last-child::after { display: none; }
+        .step-icon {
+            width: 22px; height: 22px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.7rem; border: 2px solid var(--border); color: var(--border);
+            flex-shrink: 0; transition: all 0.3s;
+        }
+        .step.active .step-icon {
+            border-color: var(--accent-light); color: var(--accent-light);
+            box-shadow: 0 0 8px var(--accent-glow);
+            animation: pulse-step 1.5s ease-in-out infinite;
+        }
+        .step.active { color: var(--text); }
+        .step.done .step-icon {
+            border-color: var(--success); background: var(--success); color: #fff;
+        }
+        .step.done { color: var(--success); }
+        .step.error .step-icon {
+            border-color: var(--error); background: var(--error); color: #fff;
+        }
+        .step.error { color: var(--error); }
+        @keyframes pulse-step { 0%,100%{opacity:1}50%{opacity:.5} }
+
+        /* ── Progress ──────────────────────────── */
+        .progress-row {
+            display: flex; align-items: center; justify-content: space-between;
             margin-bottom: 8px;
         }
-        .progress-bar-fill {
-            height: 100%;
-            border-radius: 2px;
-            background: linear-gradient(90deg, var(--accent), #f472b6);
-            transition: width 0.5s ease;
-            width: 0%;
+        .progress-label { font-size: 0.88rem; color: var(--text-dim); }
+        .progress-pct { font-size: 0.88rem; font-weight: 700; color: var(--accent-light); }
+        .timer { font-size: 0.78rem; color: var(--text-dim); margin-left: 12px; }
+
+        .progress-bar-bg {
+            width: 100%; height: 6px; border-radius: 3px;
+            background: var(--surface2); overflow: hidden;
         }
+        .progress-bar-fill {
+            height: 100%; border-radius: 3px;
+            background: linear-gradient(90deg, var(--accent), #f472b6);
+            transition: width 0.4s ease; width: 0%;
+        }
+        .progress-bar-fill.error { background: var(--error); }
 
         .error-text {
-            color: var(--error);
-            font-size: 0.88rem;
-            margin-top: 8px;
+            color: var(--error); font-size: 0.88rem; margin-top: 12px;
+            padding: 10px 14px; background: rgba(239,68,68,0.08);
+            border-radius: 8px; border: 1px solid rgba(239,68,68,0.2);
         }
 
-        /* ── Result section ─────────────────────── */
-        #result-section { display: none; }
-        #result-section.visible { display: block; }
-
-        .clips-summary {
-            color: var(--text-dim);
-            font-size: 0.88rem;
-            margin-bottom: 16px;
-        }
+        /* ── Results ───────────────────────────── */
+        .clips-summary { color: var(--text-dim); font-size: 0.88rem; margin-bottom: 16px; }
         .clips-summary strong { color: var(--text); }
 
-        .clips-grid {
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-        }
+        .clips-grid { display: flex; flex-direction: column; gap: 20px; }
 
         .clip-card {
-            background: var(--surface2);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 16px;
+            background: var(--surface2); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 16px;
         }
-
         .clip-header {
-            display: flex;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin-bottom: 12px;
+            display: flex; align-items: center; flex-wrap: wrap;
+            gap: 8px; margin-bottom: 12px;
         }
-
-        .clip-title {
-            font-weight: 700;
-            font-size: 0.95rem;
-            color: var(--text);
-        }
-
+        .clip-title { font-weight: 700; font-size: 0.95rem; }
         .meta-chip {
-            padding: 4px 10px;
-            border-radius: 20px;
-            background: var(--surface);
-            font-size: 0.75rem;
-            color: var(--text-dim);
-            border: 1px solid var(--border);
+            padding: 4px 10px; border-radius: 20px; background: var(--surface);
+            font-size: 0.75rem; color: var(--text-dim); border: 1px solid var(--border);
         }
         .meta-chip strong { color: var(--text); }
-
         .clip-hook {
-            background: var(--surface);
-            border-left: 3px solid var(--accent);
-            padding: 8px 12px;
-            border-radius: 0 6px 6px 0;
-            font-size: 0.8rem;
-            color: var(--text-dim);
-            margin-bottom: 12px;
-            font-style: italic;
+            background: var(--surface); border-left: 3px solid var(--accent);
+            padding: 8px 12px; border-radius: 0 6px 6px 0;
+            font-size: 0.8rem; color: var(--text-dim); margin-bottom: 12px; font-style: italic;
         }
-
-        .video-container {
-            width: 100%;
-            display: flex;
-            justify-content: center;
-            margin-bottom: 12px;
-        }
+        .video-container { width: 100%; display: flex; justify-content: center; margin-bottom: 12px; }
         .video-container video {
-            max-height: 480px;
-            width: 100%;
-            border-radius: var(--radius);
-            background: #000;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+            max-height: 480px; width: 100%; border-radius: var(--radius);
+            background: #000; box-shadow: 0 4px 20px rgba(0,0,0,0.4);
         }
-
         .download-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 10px 20px;
-            border-radius: var(--radius);
-            background: var(--success);
-            color: #fff;
-            text-decoration: none;
-            font-weight: 600;
-            font-size: 0.85rem;
-            transition: all 0.2s;
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 10px 20px; border-radius: var(--radius);
+            background: var(--success); color: #fff; text-decoration: none;
+            font-weight: 600; font-size: 0.85rem; transition: all 0.2s;
         }
         .download-btn:hover { background: #059669; transform: translateY(-1px); }
 
-        /* ── Spinner ────────────────────────────── */
-        .spinner {
-            display: inline-block;
-            width: 18px; height: 18px;
-            border: 2.5px solid var(--border);
-            border-top-color: var(--accent-light);
-            border-radius: 50%;
-            animation: spin 0.7s linear infinite;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-
-        /* ── Pulse dot for active states ─────────── */
-        .pulse-dot {
-            width: 8px; height: 8px;
-            border-radius: 50%;
-            background: var(--accent-light);
-            animation: pulse 1.5s ease-in-out infinite;
-        }
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-
-        /* ── Footer ─────────────────────────────── */
-        footer {
-            text-align: center;
-            padding: 20px;
-            color: var(--text-dim);
-            font-size: 0.78rem;
-        }
+        footer { text-align: center; padding: 20px; color: var(--text-dim); font-size: 0.78rem; }
         footer a { color: var(--accent-light); text-decoration: none; }
     </style>
 </head>
@@ -290,59 +202,111 @@
         <div class="input-group">
             <input type="text" id="url-input" placeholder="Colle une URL YouTube ici..." autocomplete="off" />
             <button class="btn" id="submit-btn" onclick="submitVideo()">
-                <span id="btn-text">Générer</span>
+                <span id="btn-text">G&eacute;n&eacute;rer</span>
             </button>
         </div>
     </div>
 
-    <!-- Status -->
-    <div class="card" id="status-section">
-        <div class="status-header">
-            <div class="spinner" id="status-spinner"></div>
-            <span class="status-badge badge-queued" id="status-badge">en attente</span>
-            <span class="progress-text" id="progress-text"></span>
+    <!-- YouTube Preview + Status -->
+    <div class="card hidden" id="status-section">
+        <!-- YouTube embed -->
+        <div class="hidden" id="yt-preview">
+            <div class="yt-embed"><iframe id="yt-iframe" allow="autoplay; encrypted-media" allowfullscreen></iframe></div>
+            <div class="video-title" id="video-title"></div>
+        </div>
+
+        <!-- Step indicators -->
+        <div class="steps" id="steps">
+            <div class="step" data-step="downloading">
+                <span class="step-icon">1</span> T&eacute;l&eacute;chargement
+            </div>
+            <div class="step" data-step="analyzing">
+                <span class="step-icon">2</span> Analyse
+            </div>
+            <div class="step" data-step="rendering">
+                <span class="step-icon">3</span> Rendu
+            </div>
+            <div class="step" data-step="completed">
+                <span class="step-icon">4</span> Termin&eacute;
+            </div>
+        </div>
+
+        <!-- Progress bar -->
+        <div class="progress-row">
+            <span class="progress-label" id="progress-text">En attente...</span>
+            <span>
+                <span class="progress-pct" id="progress-pct">0%</span>
+                <span class="timer" id="timer">0:00</span>
+            </span>
         </div>
         <div class="progress-bar-bg">
             <div class="progress-bar-fill" id="progress-bar"></div>
         </div>
-        <div class="error-text" id="error-text" style="display:none;"></div>
+
+        <div class="error-text hidden" id="error-text"></div>
     </div>
 
-    <!-- Result -->
-    <div class="card" id="result-section">
+    <!-- Results -->
+    <div class="card hidden" id="result-section">
         <div class="clips-summary" id="clips-summary"></div>
         <div class="clips-grid" id="clips-grid"></div>
     </div>
 </main>
 
 <footer>
-    Propulsé par <a href="/api/docs">Video Maker API</a> &middot; FFmpeg &middot; Whisper
+    Propuls&eacute; par <a href="/api/docs">Video Maker API</a> &middot; FFmpeg &middot; Whisper
 </footer>
 
 <script>
 const API = '';
-let pollTimer = null;
-let currentJobId = null;
+let eventSource = null;
+let timerInterval = null;
+let startTime = null;
 
 const $ = id => document.getElementById(id);
 
-const STATUS_LABELS = {
-    queued: 'En attente',
-    downloading: 'Téléchargement',
-    analyzing: 'Analyse IA',
-    rendering: 'Rendu vidéo',
-    completed: 'Terminé',
-    failed: 'Erreur',
-};
+const STEP_ORDER = ['downloading', 'analyzing', 'rendering', 'completed'];
 
-const PROGRESS_MAP = {
-    queued: 5,
-    downloading: 25,
-    analyzing: 55,
-    rendering: 80,
-    completed: 100,
-    failed: 0,
-};
+function extractVideoId(url) {
+    const m = url.match(/(?:v=|\/v\/|youtu\.be\/|\/shorts\/)([a-zA-Z0-9_-]{11})/);
+    return m ? m[1] : null;
+}
+
+function formatTime(ms) {
+    const s = Math.floor(ms / 1000);
+    const m = Math.floor(s / 60);
+    return `${m}:${String(s % 60).padStart(2, '0')}`;
+}
+
+function startTimer() {
+    startTime = Date.now();
+    if (timerInterval) clearInterval(timerInterval);
+    timerInterval = setInterval(() => {
+        $('timer').textContent = formatTime(Date.now() - startTime);
+    }, 1000);
+}
+
+function stopTimer() {
+    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+}
+
+function updateSteps(currentStatus) {
+    const steps = document.querySelectorAll('.step');
+    const currentIdx = STEP_ORDER.indexOf(currentStatus);
+
+    steps.forEach((el, i) => {
+        el.classList.remove('active', 'done', 'error');
+        if (currentStatus === 'failed') {
+            if (i <= currentIdx || i === 0) el.classList.add('error');
+        } else if (i < currentIdx) {
+            el.classList.add('done');
+            el.querySelector('.step-icon').textContent = '\u2713';
+        } else if (i === currentIdx) {
+            el.classList.add(currentStatus === 'completed' ? 'done' : 'active');
+            if (currentStatus === 'completed') el.querySelector('.step-icon').textContent = '\u2713';
+        }
+    });
+}
 
 async function submitVideo() {
     const url = $('url-input').value.trim();
@@ -351,13 +315,31 @@ async function submitVideo() {
     // Reset UI
     $('submit-btn').disabled = true;
     $('btn-text').textContent = 'Traitement...';
-    $('status-section').classList.add('visible');
-    $('result-section').classList.remove('visible');
-    $('error-text').style.display = 'none';
-    $('progress-bar').style.width = '5%';
-    updateBadge('queued');
-    $('progress-text').textContent = 'Envoi de la requête...';
-    $('status-spinner').style.display = 'inline-block';
+    $('status-section').classList.remove('hidden');
+    $('result-section').classList.add('hidden');
+    $('error-text').classList.add('hidden');
+    $('progress-bar').style.width = '0%';
+    $('progress-bar').classList.remove('error');
+    $('progress-pct').textContent = '0%';
+    $('progress-text').textContent = 'Envoi...';
+    $('video-title').textContent = '';
+
+    // Reset steps
+    document.querySelectorAll('.step').forEach((el, i) => {
+        el.classList.remove('active', 'done', 'error');
+        el.querySelector('.step-icon').textContent = String(i + 1);
+    });
+
+    // Show YouTube embed immediately
+    const videoId = extractVideoId(url);
+    if (videoId) {
+        $('yt-iframe').src = `https://www.youtube.com/embed/${videoId}`;
+        $('yt-preview').classList.remove('hidden');
+    } else {
+        $('yt-preview').classList.add('hidden');
+    }
+
+    startTimer();
 
     try {
         const resp = await fetch(`${API}/api/process`, {
@@ -365,77 +347,79 @@ async function submitVideo() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ youtube_url: url }),
         });
-
         if (!resp.ok) {
             const err = await resp.json();
             throw new Error(err.detail || 'Erreur serveur');
         }
-
         const data = await resp.json();
-        currentJobId = data.job_id;
-        startPolling(currentJobId);
-
+        connectSSE(data.job_id);
     } catch (e) {
         showError(e.message);
+        resetBtn();
+        stopTimer();
+    }
+}
+
+function connectSSE(jobId) {
+    if (eventSource) eventSource.close();
+    eventSource = new EventSource(`${API}/api/events/${jobId}`);
+
+    eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        handleUpdate(data);
+    };
+
+    eventSource.onerror = () => {
+        // SSE closed (server done or error) — try one final status poll
+        eventSource.close();
+        eventSource = null;
+    };
+}
+
+function handleUpdate(data) {
+    // Progress bar + percentage
+    const pct = data.percent || 0;
+    $('progress-bar').style.width = pct + '%';
+    $('progress-pct').textContent = pct + '%';
+    $('progress-text').textContent = data.progress || '';
+
+    // Video title
+    if (data.video_title) {
+        $('video-title').textContent = data.video_title;
+    }
+
+    // Steps
+    updateSteps(data.status);
+
+    // Terminal states
+    if (data.status === 'completed') {
+        stopTimer();
+        if (eventSource) { eventSource.close(); eventSource = null; }
+        resetBtn();
+        showResult(data);
+    }
+
+    if (data.status === 'failed') {
+        stopTimer();
+        if (eventSource) { eventSource.close(); eventSource = null; }
+        $('progress-bar').classList.add('error');
+        showError(data.error || 'Le traitement a \u00e9chou\u00e9');
         resetBtn();
     }
 }
 
-function startPolling(jobId) {
-    if (pollTimer) clearInterval(pollTimer);
-    pollTimer = setInterval(() => pollStatus(jobId), 1500);
-}
-
-async function pollStatus(jobId) {
-    try {
-        const resp = await fetch(`${API}/api/status/${jobId}`);
-        if (!resp.ok) throw new Error('Impossible de récupérer le statut');
-        const data = await resp.json();
-
-        updateBadge(data.status);
-        $('progress-text').textContent = data.progress || '';
-        $('progress-bar').style.width = (PROGRESS_MAP[data.status] || 0) + '%';
-
-        if (data.status === 'completed') {
-            clearInterval(pollTimer);
-            $('status-spinner').style.display = 'none';
-            resetBtn();
-            showResult(data);
-        }
-
-        if (data.status === 'failed') {
-            clearInterval(pollTimer);
-            $('status-spinner').style.display = 'none';
-            showError(data.error || 'Le traitement a échoué');
-            resetBtn();
-        }
-
-    } catch (e) {
-        // Silently retry
-    }
-}
-
-function updateBadge(status) {
-    const badge = $('status-badge');
-    badge.textContent = STATUS_LABELS[status] || status;
-    badge.className = 'status-badge badge-' + status;
-}
-
 function showError(msg) {
     $('error-text').textContent = msg;
-    $('error-text').style.display = 'block';
-    $('progress-bar').style.width = '100%';
-    $('progress-bar').style.background = 'var(--error)';
-    setTimeout(() => {
-        $('progress-bar').style.background = '';
-    }, 3000);
+    $('error-text').classList.remove('hidden');
 }
 
 function showResult(data) {
     if (!data.clips || !data.clips.length) return;
 
     const totalDur = data.clips.reduce((s, c) => s + c.duration, 0);
-    $('clips-summary').innerHTML = `<strong>${data.clips.length}</strong> clips g\u00e9n\u00e9r\u00e9s &middot; ${Math.round(totalDur)}s au total`;
+    $('clips-summary').innerHTML =
+        `<strong>${data.clips.length}</strong> clips g\u00e9n\u00e9r\u00e9s &middot; ${Math.round(totalDur)}s au total` +
+        ` &middot; <span style="color:var(--success)">${formatTime(Date.now() - startTime)}</span>`;
 
     const grid = $('clips-grid');
     grid.innerHTML = '';
@@ -462,18 +446,15 @@ function showResult(data) {
         grid.appendChild(card);
     });
 
-    $('result-section').classList.add('visible');
+    $('result-section').classList.remove('hidden');
 }
 
 function resetBtn() {
     $('submit-btn').disabled = false;
-    $('btn-text').textContent = 'Générer';
+    $('btn-text').textContent = 'G\u00e9n\u00e9rer';
 }
 
-// Enter key
-$('url-input').addEventListener('keydown', e => {
-    if (e.key === 'Enter') submitVideo();
-});
+$('url-input').addEventListener('keydown', e => { if (e.key === 'Enter') submitVideo(); });
 </script>
 
 </body>

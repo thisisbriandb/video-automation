@@ -1,12 +1,14 @@
 """FastAPI application for the Video Maker pipeline."""
 
+import asyncio
+
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from pathlib import Path
 from video_maker.config import OUTPUT_DIR
-from video_maker.models import ClipRequest, PipelineStatus
-from video_maker.pipeline import start_pipeline, get_job, list_jobs
+from video_maker.models import ClipRequest, JobStatus, PipelineStatus
+from video_maker.pipeline import start_pipeline, get_job, list_jobs, _job_version
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -68,6 +70,29 @@ async def get_status(job_id: str):
 async def get_all_jobs():
     """List all processing jobs."""
     return list_jobs()
+
+
+@app.get("/api/events/{job_id}")
+async def stream_events(job_id: str):
+    """SSE endpoint for real-time job progress updates."""
+    async def generate():
+        last_version = -1
+        while True:
+            current = _job_version.get(job_id, 0)
+            if current != last_version:
+                last_version = current
+                job = get_job(job_id)
+                if job:
+                    yield f"data: {job.model_dump_json()}\n\n"
+                    if job.status in (JobStatus.COMPLETED, JobStatus.FAILED):
+                        break
+            await asyncio.sleep(0.5)
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/api/clips/{job_id}/{filename}")

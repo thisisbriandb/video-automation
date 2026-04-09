@@ -10,6 +10,7 @@ workdir/
 
 # env
 .env
+google_cookies.txt
 
 # gros fichiers
 *.zip

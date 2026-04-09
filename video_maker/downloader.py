@@ -103,6 +103,51 @@ def _make_job_dir(job_id: str) -> Path:
     return job_dir
 
 
+def _download_subtitles(url: str, job_dir: Path) -> Path | None:
+    """Download YouTube auto-generated subtitles in JSON3 format (word-level timestamps).
+
+    Returns path to the JSON3 file, or None if unavailable.
+    """
+    cookies = _get_cookies_path()
+    subs_template = str(job_dir / "subs")
+
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "writeautomaticsub": True,
+        "subtitlesformat": "json3",
+        "subtitleslangs": ["fr", "en"],
+        "skip_download": True,
+        "outtmpl": subs_template,
+        "ffmpeg_location": str(FFMPEG_DIR),
+    }
+    if cookies:
+        ydl_opts["cookiefile"] = cookies
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+    except Exception as e:
+        logger.warning(f"Subtitle download failed: {e}")
+        return None
+
+    # Prefer fr > en > any available
+    for lang in ["fr", "en"]:
+        p = job_dir / f"subs.{lang}.json3"
+        if p.exists() and p.stat().st_size > 0:
+            logger.info(f"YouTube subtitles downloaded: {p.name} ({p.stat().st_size:,} bytes)")
+            return p
+
+    json3_files = sorted(job_dir.glob("subs.*.json3"))
+    if json3_files:
+        p = json3_files[0]
+        logger.info(f"YouTube subtitles downloaded: {p.name} ({p.stat().st_size:,} bytes)")
+        return p
+
+    logger.info("No YouTube auto-generated subtitles available")
+    return None
+
+
 def download_video(url: str, job_id: str) -> dict:
     """Download a YouTube video (high-res only).
 
@@ -164,6 +209,12 @@ def download_video(url: str, job_id: str) -> dict:
     result["video_path"] = video_path
     size_mb = video_path.stat().st_size / 1024 / 1024
     logger.info(f"[{job_id}] Download complete: {size_mb:.1f} MB")
+
+    # ── Step 3: Download YouTube subtitles (word-level JSON3) ──────
+    logger.info(f"[{job_id}] Fetching YouTube subtitles...")
+    subs_path = _download_subtitles(url, job_dir)
+    result["subs_path"] = subs_path
+
     return result
 
 

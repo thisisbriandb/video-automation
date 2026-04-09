@@ -1,3 +1,4 @@
+import json
 import subprocess
 import torch
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -233,6 +234,68 @@ def transcribe_files_parallel(
                 results[rank] = []
 
     return results
+
+
+# ── YouTube subtitle parsing ──────────────────────────────────────
+
+
+def parse_youtube_json3(json3_path: Path) -> List[SubtitleWord]:
+    """Parse YouTube JSON3 subtitle file into word-level SubtitleWord list.
+
+    JSON3 auto-generated subtitles contain word-level timestamps via
+    event.segs[].tOffsetMs — much faster than running Whisper on CPU.
+    """
+    with open(json3_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    words: List[SubtitleWord] = []
+
+    for event in data.get("events", []):
+        t_start_ms = event.get("tStartMs", 0)
+        d_duration_ms = event.get("dDurationMs", 0)
+        segs = event.get("segs", [])
+
+        # Filter to real words (skip newlines, whitespace-only)
+        valid = [
+            (s.get("utf8", "").strip(), s.get("tOffsetMs", 0))
+            for s in segs
+            if s.get("utf8", "").strip() and s.get("utf8", "").strip() != "\n"
+        ]
+        if not valid:
+            continue
+
+        event_end_ms = t_start_ms + d_duration_ms
+
+        for i, (text, offset_ms) in enumerate(valid):
+            word_start = (t_start_ms + offset_ms) / 1000.0
+
+            if i + 1 < len(valid):
+                word_end = (t_start_ms + valid[i + 1][1]) / 1000.0
+            else:
+                word_end = event_end_ms / 1000.0
+
+            if word_end <= word_start:
+                word_end = word_start + 0.3
+
+            words.append(SubtitleWord(start=round(word_start, 3), end=round(word_end, 3), word=text))
+
+    logger.info(f"Parsed {len(words)} words from YouTube JSON3 subtitles")
+    return words
+
+
+def extract_words_for_clip(
+    all_words: List[SubtitleWord], clip_start: float, clip_end: float
+) -> List[SubtitleWord]:
+    """Extract words overlapping a clip's time range, re-timed to 0-based."""
+    return [
+        SubtitleWord(
+            start=round(max(0.0, w.start - clip_start), 3),
+            end=round(min(clip_end - clip_start, w.end - clip_start), 3),
+            word=w.word,
+        )
+        for w in all_words
+        if w.end > clip_start and w.start < clip_end
+    ]
 
 
 def compute_text_score(words: List[SubtitleWord]) -> float:

@@ -17,13 +17,18 @@ from video_maker.scorer import (
     _expand_to_min_duration,
     _merge_overlapping,
 )
-from video_maker.transcriber import transcribe_files_parallel
+from video_maker.transcriber import (
+    transcribe_files_parallel,
+    parse_youtube_json3,
+    extract_words_for_clip,
+)
 from video_maker.utils import logger
 
 
 def analyze_video(
     video_path: Path,
     work_dir: Path,
+    subs_path: Path | None = None,
 ) -> AnalysisResult:
     """Full local analysis pipeline: score → expand → batch-transcribe final clips.
 
@@ -57,52 +62,77 @@ def analyze_video(
     final_segments = expanded[:MAX_CLIPS]
     n_clips = len(final_segments)
 
-    # ── Step 4: Pre-extract all audio segments in parallel ────────────
-    logger.info(f"Pre-extracting {n_clips} audio segments with {NUM_WORKERS} workers...")
-    t_extract = time.time()
+    # ── Step 4+5: Get subtitles (YouTube subs → instant, Whisper → slow)
+    t_subs = time.time()
 
-    from video_maker.transcriber import _extract_segment_audio, FFMPEG_BIN
-    audio_files: dict[int, Path] = {}
+    if subs_path and subs_path.exists():
+        # ── Fast path: YouTube JSON3 word-level subtitles ──────────
+        logger.info(f"Using YouTube subtitles from {subs_path.name} (skipping Whisper)")
+        all_words = parse_youtube_json3(subs_path)
 
-    def _extract_one(rank_seg):
-        rank, seg = rank_seg
-        out = work_dir / f"final_audio_{rank:02d}.wav"
-        _extract_segment_audio(audio_path, seg.start, seg.end - seg.start, out)
-        return rank, out
+        clips = []
+        for rank, seg in enumerate(final_segments):
+            words = extract_words_for_clip(all_words, seg.start, seg.end)
+            virality = max(1, min(10, int(seg.total_score * 10)))
+            clip_dur = seg.end - seg.start
 
-    with ThreadPoolExecutor(max_workers=NUM_WORKERS) as pool:
-        for rank, out_path in pool.map(_extract_one, enumerate(final_segments)):
-            audio_files[rank] = out_path
+            clips.append(ClipSegment(
+                start=seg.start,
+                end=seg.end,
+                virality_score=virality,
+                title=f"Clip #{rank + 1} ({clip_dur:.0f}s)",
+                hook_reason=f"audio={seg.audio_score:.2f} visual={seg.visual_score:.2f}",
+                words=words,
+            ))
+            logger.info(f"  Clip {rank + 1}: {len(words)} words from YouTube subs")
 
-    logger.info(f"Audio extraction done ({time.time() - t_extract:.1f}s)")
+        logger.info(f"YouTube subtitle extraction done in {time.time() - t_subs:.1f}s")
+    else:
+        # ── Slow path: Whisper transcription ───────────────────────
+        logger.info(f"No YouTube subs available — falling back to Whisper")
 
-    # ── Step 5: Transcribe all segments (parallel on CPU / sequential on GPU)
-    logger.info(f"Transcribing {n_clips} final clips with Whisper...")
-    t_whisper = time.time()
+        logger.info(f"Pre-extracting {n_clips} audio segments with {NUM_WORKERS} workers...")
+        t_extract = time.time()
 
-    transcriptions = transcribe_files_parallel(audio_files)
+        from video_maker.transcriber import _extract_segment_audio, FFMPEG_BIN
+        audio_files: dict[int, Path] = {}
 
-    clips = []
-    for rank, seg in enumerate(final_segments):
-        words = transcriptions.get(rank, [])
-        virality = max(1, min(10, int(seg.total_score * 10)))
-        clip_dur = seg.end - seg.start
+        def _extract_one(rank_seg):
+            rank, seg = rank_seg
+            out = work_dir / f"final_audio_{rank:02d}.wav"
+            _extract_segment_audio(audio_path, seg.start, seg.end - seg.start, out)
+            return rank, out
 
-        clips.append(ClipSegment(
-            start=seg.start,
-            end=seg.end,
-            virality_score=virality,
-            title=f"Clip #{rank + 1} ({clip_dur:.0f}s)",
-            hook_reason=f"audio={seg.audio_score:.2f} visual={seg.visual_score:.2f}",
-            words=words,
-        ))
+        with ThreadPoolExecutor(max_workers=NUM_WORKERS) as pool:
+            for rank, out_path in pool.map(_extract_one, enumerate(final_segments)):
+                audio_files[rank] = out_path
 
-        # Cleanup temp audio
-        audio_file = audio_files.get(rank)
-        if audio_file and audio_file.exists():
-            audio_file.unlink()
+        logger.info(f"Audio extraction done ({time.time() - t_extract:.1f}s)")
 
-    logger.info(f"Transcription done: {n_clips} clips in {time.time() - t_whisper:.1f}s")
+        logger.info(f"Transcribing {n_clips} final clips with Whisper...")
+        transcriptions = transcribe_files_parallel(audio_files)
+
+        clips = []
+        for rank, seg in enumerate(final_segments):
+            words = transcriptions.get(rank, [])
+            virality = max(1, min(10, int(seg.total_score * 10)))
+            clip_dur = seg.end - seg.start
+
+            clips.append(ClipSegment(
+                start=seg.start,
+                end=seg.end,
+                virality_score=virality,
+                title=f"Clip #{rank + 1} ({clip_dur:.0f}s)",
+                hook_reason=f"audio={seg.audio_score:.2f} visual={seg.visual_score:.2f}",
+                words=words,
+            ))
+
+            # Cleanup temp audio
+            audio_file = audio_files.get(rank)
+            if audio_file and audio_file.exists():
+                audio_file.unlink()
+
+        logger.info(f"Whisper transcription done: {n_clips} clips in {time.time() - t_subs:.1f}s")
 
     clips.sort(key=lambda c: c.start)
     logger.info(f"Analysis complete: {len(clips)} clips ready for rendering")

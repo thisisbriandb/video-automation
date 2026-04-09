@@ -76,16 +76,25 @@ if _yt_api_path not in sys.path:
 import yt_dlp
 
 def _get_auth_opts() -> dict:
-    """Return yt-dlp auth options (cookies file if available)."""
+    """Return yt-dlp auth options (cookies + proxy if available)."""
+    opts = {}
     cookies = _get_cookies_path()
     if cookies:
-        return {"cookiefile": cookies}
-    return {}
+        opts["cookiefile"] = cookies
+    proxy = os.environ.get("YOUTUBE_PROXY", "").strip()
+    if proxy:
+        opts["proxy"] = proxy
+    return opts
 
 
 # Log versions & Node.js availability at import time
 logger.info(f"yt-dlp version: {yt_dlp.version.__version__}")
 logger.info(f"Auth: {'cookies' if _get_cookies_path() else 'NONE (will likely fail)'}")
+_proxy = os.environ.get("YOUTUBE_PROXY", "").strip()
+if _proxy:
+    logger.info(f"Proxy: {_proxy.split('@')[-1] if '@' in _proxy else _proxy}")
+else:
+    logger.info("Proxy: NONE (datacenter IP — YouTube may block)")
 try:
     import yt_dlp_ejs
     _ejs_ver = getattr(yt_dlp_ejs, "__version__", getattr(yt_dlp_ejs, "version", "unknown"))

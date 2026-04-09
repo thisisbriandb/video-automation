@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from video_maker.config import WORKING_DIR, PROJECT_ROOT, FFMPEG_DIR
 from video_maker.utils import logger
@@ -93,7 +94,7 @@ def _get_auth_opts() -> dict:
     if proxy:
         opts["proxy"] = proxy
     # Tell yt-dlp to use the bgutil HTTP server for PO token generation
-    opts["extractor_args"] = {"youtube": {"getpot_bgutil_baseurl": [_POT_SERVER_URL]}}
+    opts["extractor_args"] = {"youtubepot-bgutilhttp": {"base_url": [_POT_SERVER_URL]}}
     return opts
 
 
@@ -160,12 +161,19 @@ def _download_subtitles(url: str, job_dir: Path) -> Path | None:
         **_get_auth_opts(),
     }
 
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-    except Exception as e:
-        logger.warning(f"Subtitle download failed: {e}")
-        return None
+    for attempt in range(3):
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+            break
+        except Exception as e:
+            if "429" in str(e) and attempt < 2:
+                wait = (attempt + 1) * 3
+                logger.warning(f"Subtitle download 429 — retrying in {wait}s (attempt {attempt+1}/3)")
+                time.sleep(wait)
+                continue
+            logger.warning(f"Subtitle download failed: {e}")
+            return None
 
     # Prefer fr > en > any available
     for lang in ["fr", "en"]:

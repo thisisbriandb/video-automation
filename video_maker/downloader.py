@@ -75,8 +75,17 @@ if _yt_api_path not in sys.path:
 
 import yt_dlp
 
+def _get_auth_opts() -> dict:
+    """Return yt-dlp auth options (cookies file if available)."""
+    cookies = _get_cookies_path()
+    if cookies:
+        return {"cookiefile": cookies}
+    return {}
+
+
 # Log versions & Node.js availability at import time
 logger.info(f"yt-dlp version: {yt_dlp.version.__version__}")
+logger.info(f"Auth: {'cookies' if _get_cookies_path() else 'NONE (will likely fail)'}")
 try:
     import yt_dlp_ejs
     _ejs_ver = getattr(yt_dlp_ejs, "__version__", getattr(yt_dlp_ejs, "version", "unknown"))
@@ -108,7 +117,6 @@ def _download_subtitles(url: str, job_dir: Path) -> Path | None:
 
     Returns path to the JSON3 file, or None if unavailable.
     """
-    cookies = _get_cookies_path()
     subs_template = str(job_dir / "subs")
 
     ydl_opts = {
@@ -120,9 +128,8 @@ def _download_subtitles(url: str, job_dir: Path) -> Path | None:
         "skip_download": True,
         "outtmpl": subs_template,
         "ffmpeg_location": str(FFMPEG_DIR),
+        **_get_auth_opts(),
     }
-    if cookies:
-        ydl_opts["cookiefile"] = cookies
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -167,11 +174,9 @@ def download_video(url: str, job_id: str) -> dict:
     info_opts: dict = {
         "quiet": True, "no_warnings": True,
         "ffmpeg_location": str(FFMPEG_DIR),
+        **_get_auth_opts(),
     }
-    cookies = _get_cookies_path()
-    if cookies:
-        info_opts["cookiefile"] = cookies
-        logger.info("Using YouTube cookies for authentication")
+    logger.info(f"Auth: {'cookies' if 'cookiefile' in info_opts else 'none'}")
     with yt_dlp.YoutubeDL(info_opts) as ydl:
         info = ydl.extract_info(url, download=False, process=False)
 
@@ -264,8 +269,6 @@ def _download_with_format(url: str, output_path: Path, format_selector: str) -> 
             }
         ],
     }
-    cookies = _get_cookies_path()
-    if cookies:
-        ydl_opts["cookiefile"] = cookies
+    ydl_opts.update(_get_auth_opts())
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])

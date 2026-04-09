@@ -31,9 +31,6 @@ RUN pip install --no-cache-dir -r requirements.txt \
 # Copy app code
 COPY video_maker/ video_maker/
 
-# Copy YouTube cookies if present
-COPY cookies.txt /app/cookies.txt
-
 # Create working directories
 RUN mkdir -p workdir output
 
@@ -41,7 +38,8 @@ RUN mkdir -p workdir output
 ENV PORT=8001
 ENV WHISPER_MODEL=small
 ENV FFMPEG_DIR=/usr/bin
-ENV YOUTUBE_COOKIES_FILE=/app/cookies.txt
+# Cookies: set YOUTUBE_COOKIES env var on Railway (base64-encoded Netscape cookies)
+# The downloader auto-decodes and writes to a temp file at runtime
 
 EXPOSE 8001
 

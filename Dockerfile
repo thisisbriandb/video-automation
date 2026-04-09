@@ -27,7 +27,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt \
     && python -c "import yt_dlp; print('yt-dlp version:', yt_dlp.version.__version__)" \
     && python -c "import yt_dlp_ejs; print('yt-dlp-ejs OK')" \
-    && python -c "import bgutil_ytdlp_pot_provider; print('bgutil POT provider OK')"
+    && pip show bgutil-ytdlp-pot-provider | head -2
 
 # Set up bgutil PO Token provider (generates Proof of Origin tokens to bypass YouTube bot detection)
 RUN git clone --single-branch --branch 1.3.1 --depth 1 \

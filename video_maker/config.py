@@ -62,7 +62,7 @@ SUBTITLE_WORDS_PER_CHUNK: int = int(_get("SUBTITLE_WORDS_PER_CHUNK", "3"))
 SUBTITLE_UPPERCASE: bool = _get("SUBTITLE_UPPERCASE", "true").lower() == "true"
 
 # Whisper
-WHISPER_MODEL: str = _get("WHISPER_MODEL", "tiny")
+WHISPER_MODEL: str = _get("WHISPER_MODEL", "medium")
 
 # Ensure dirs exist
 WORKING_DIR.mkdir(parents=True, exist_ok=True)

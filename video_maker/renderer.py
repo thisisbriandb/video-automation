@@ -48,11 +48,95 @@ def _average_face_x(keyframes: list[FaceKeyframe], fallback: int) -> int:
     return int(sum(kf.x for kf in keyframes) / len(keyframes))
 
 
+# Maximum keyframes in the FFmpeg expression (avoid overly deep nesting)
+_MAX_EXPR_KEYFRAMES = 40
+
+
+def _smooth_positions(values: list[float], window: int = 5) -> list[float]:
+    """Smooth a list of values with centered moving average for fluid crop motion."""
+    if len(values) <= window:
+        return values
+    smoothed = []
+    half = window // 2
+    for i in range(len(values)):
+        lo = max(0, i - half)
+        hi = min(len(values), i + half + 1)
+        smoothed.append(sum(values[lo:hi]) / (hi - lo))
+    return smoothed
+
+
+def _build_dynamic_crop_x(
+    keyframes: list[FaceKeyframe],
+    crop_w: int,
+    src_width: int,
+    clip_duration: float,
+) -> str | None:
+    """Build an FFmpeg expression for time-varying crop X with smooth face tracking.
+
+    Generates a piecewise-linear interpolation between face positions,
+    smoothed with a moving average for fluid motion.
+
+    Returns an FFmpeg expression string (commas escaped for filter chain),
+    or None if not enough keyframes.
+    """
+    if len(keyframes) < 2:
+        return None
+
+    half = crop_w // 2
+    max_x = max(0, src_width - crop_w)
+
+    # Convert face center X → crop_x (left edge of crop window), clamped
+    times = [kf.time for kf in keyframes]
+    raw_xs = [int(clamp(kf.x - half, 0, max_x)) for kf in keyframes]
+
+    # Extend to cover full clip duration at boundaries
+    if times[0] > 0.1:
+        times.insert(0, 0.0)
+        raw_xs.insert(0, raw_xs[0])
+    if times[-1] < clip_duration - 0.5:
+        times.append(clip_duration)
+        raw_xs.append(raw_xs[-1])
+
+    # Subsample if too many keyframes (keep expression depth manageable)
+    if len(times) > _MAX_EXPR_KEYFRAMES:
+        step = len(times) / _MAX_EXPR_KEYFRAMES
+        indices = [int(i * step) for i in range(_MAX_EXPR_KEYFRAMES - 1)] + [len(times) - 1]
+        times = [times[i] for i in indices]
+        raw_xs = [raw_xs[i] for i in indices]
+
+    # Smooth with moving average for fluid motion
+    smoothed = _smooth_positions([float(x) for x in raw_xs], window=5)
+    crop_xs = [int(round(clamp(x, 0, max_x))) for x in smoothed]
+
+    # Build nested if(lt(t, t_i), interpolation, fallback) expression
+    expr = str(crop_xs[-1])  # last position as ultimate fallback
+
+    for i in range(len(times) - 2, -1, -1):
+        t0, t1 = times[i], times[i + 1]
+        x0, x1 = crop_xs[i], crop_xs[i + 1]
+        dt = t1 - t0
+        if dt < 0.01:
+            continue
+
+        if x0 == x1:
+            seg = str(x0)
+        else:
+            seg = f"{x0}+{x1 - x0}*(t-{t0:.2f})/{dt:.2f}"
+
+        expr = f"if(lt(t,{t1:.2f}),{seg},{expr})"
+
+    # Clamp to valid range
+    expr = f"clip({expr},0,{max_x})"
+
+    # Escape commas so FFmpeg filter chain doesn't split on them
+    return expr.replace(",", "\\,")
+
+
 def _build_subtitle_style() -> str:
     """Return ASS-style override for Hormozi-style subtitles: lower third, just below face."""
     return (
         "FontName=Impact,"
-        "FontSize=18,"
+        "FontSize=48,"
         "PrimaryColour=&H00FFFFFF,"
         "OutlineColour=&H00000000,"
         "BackColour=&H00000000,"
@@ -104,16 +188,7 @@ def render_clip(
     crop_w = crop_w - (crop_w % 2)
     crop_h = crop_h - (crop_h % 2)
 
-    # Center crop on average face X position
-    face_x = _average_face_x(segment.face_keyframes, real_w // 2)
-    # Scale face_x from Gemini's assumed 1920-wide to actual width
-    face_x = int(face_x * real_w / 1920)
-
-    half_crop = crop_w // 2
-    crop_x = int(clamp(face_x - half_crop, 0, real_w - crop_w))
     crop_y = int(clamp((real_h - crop_h) // 2, 0, real_h - crop_h))
-
-    logger.info(f"{prefix}Crop: {crop_w}x{crop_h} at ({crop_x},{crop_y}), face_x={face_x}")
 
     # ── Generate Hormozi-style SRT file ─────────────────────────────
     srt_path = None
@@ -124,8 +199,21 @@ def render_clip(
     # ── Build filter chain ──────────────────────────────────────────
     filters = []
 
-    # Static crop
-    filters.append(f"crop={crop_w}:{crop_h}:{crop_x}:{crop_y}")
+    # Dynamic crop: interpolate face X between keyframes for smooth tracking
+    crop_x_expr = _build_dynamic_crop_x(
+        segment.face_keyframes, crop_w, real_w, duration
+    )
+    if crop_x_expr:
+        filters.append(f"crop={crop_w}:{crop_h}:{crop_x_expr}:{crop_y}")
+        logger.info(f"{prefix}Dynamic crop: {crop_w}x{crop_h}, {len(segment.face_keyframes)} keyframes, y={crop_y}")
+    else:
+        # Fallback: static crop at average face position
+        face_x = _average_face_x(segment.face_keyframes, real_w // 2)
+        if not segment.face_keyframes:
+            logger.warning(f"{prefix}No face detected — centering crop")
+        crop_x = int(clamp(face_x - crop_w // 2, 0, real_w - crop_w))
+        filters.append(f"crop={crop_w}:{crop_h}:{crop_x}:{crop_y}")
+        logger.info(f"{prefix}Static crop: {crop_w}x{crop_h} at ({crop_x},{crop_y})")
 
     # Scale to 1080x1920 (use bicubic for better speed/quality balance than lanczos on CPU)
     filters.append(f"scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:flags=bicubic")
@@ -134,10 +222,15 @@ def render_clip(
     filters.append("format=yuv420p")
 
     # Burn subtitles (after scale so coords match output resolution)
+    # Use relative path to avoid Windows drive-letter colon breaking FFmpeg filter parser
     if srt_path and srt_path.exists():
-        srt_escaped = str(srt_path).replace("\\", "/").replace(":", "\\\\:")
+        try:
+            srt_rel = srt_path.relative_to(Path.cwd())
+        except ValueError:
+            srt_rel = srt_path
+        srt_escaped = str(srt_rel).replace("\\", "/")
         style = _build_subtitle_style()
-        filters.append(f"subtitles='{srt_escaped}':force_style='{style}'")
+        filters.append(f"subtitles={srt_escaped}:force_style='{style}'")
 
     vf = ",".join(filters)
 

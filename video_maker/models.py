@@ -25,7 +25,7 @@ class SubtitleLine(BaseModel):
 
 class FaceKeyframe(BaseModel):
     time: float = Field(..., description="Time offset in seconds from segment start")
-    x: int = Field(..., description="X-coordinate of face center in source frame (0-1920)")
+    x: int = Field(..., description="X-coordinate of face center in source frame (real pixels)")
 
 
 class ScoredSegment(BaseModel):

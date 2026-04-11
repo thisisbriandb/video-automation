@@ -133,18 +133,22 @@ def _build_dynamic_crop_x(
 
 
 def _build_subtitle_style() -> str:
-    """Return ASS-style override for Hormozi-style subtitles: lower third, just below face."""
+    """Return ASS-style override for Hormozi-style subtitles.
+    
+    Note: ASS default PlayResY=288. All MarginV/FontSize values are in that
+    coordinate space, NOT in actual video pixels.
+    """
     return (
         "FontName=Impact,"
-        "FontSize=48,"
+        "FontSize=16,"
         "PrimaryColour=&H00FFFFFF,"
         "OutlineColour=&H00000000,"
         "BackColour=&H00000000,"
         "Bold=1,"
-        "Outline=3,"
+        "Outline=2,"
         "Shadow=0,"
         "Alignment=2,"
-        "MarginV=550"
+        "MarginV=35"
     )
 
 

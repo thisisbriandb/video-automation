@@ -1,6 +1,7 @@
 """Configuration loaded from .env file"""
 
 import os
+import shutil
 from pathlib import Path
 from dotenv import dotenv_values
 
@@ -18,12 +19,19 @@ PROJECT_ROOT = Path(__file__).parent.parent
 WORKING_DIR: Path = Path(_get("WORKING_DIR", str(PROJECT_ROOT / "workdir")))
 OUTPUT_DIR: Path = Path(_get("OUTPUT_DIR", str(PROJECT_ROOT / "output")))
 
-# FFmpeg – auto-detect: env var > Windows default > Linux system
+# FFmpeg – auto-detect: env var > WinGet install > PATH > Linux default
 def _default_ffmpeg_dir() -> str:
-    win_path = Path.home() / "AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-8.1-full_build/bin"
+    # 1) Known WinGet install location (Windows)
+    win_path = Path.home() / "AppData/Local/Microsoft/WinGet/Packages"
     if win_path.exists():
-        return str(win_path)
-    # Linux / Docker: ffmpeg is on PATH
+        for pkg_dir in win_path.glob("Gyan.FFmpeg_*/ffmpeg-*-full_build/bin"):
+            if (pkg_dir / "ffmpeg.exe").exists():
+                return str(pkg_dir)
+    # 2) FFmpeg already on PATH (works on any OS)
+    ffmpeg_on_path = shutil.which("ffmpeg")
+    if ffmpeg_on_path:
+        return str(Path(ffmpeg_on_path).parent)
+    # 3) Linux / Docker fallback
     return "/usr/bin"
 
 FFMPEG_DIR: Path = Path(_get("FFMPEG_DIR", _default_ffmpeg_dir()))

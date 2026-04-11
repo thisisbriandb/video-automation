@@ -153,7 +153,6 @@ def _run_pipeline_sync(job_id: str, youtube_url: str) -> None:
         analysis = analyze_video(
             video_path=video_path,
             work_dir=job_dir,
-            subs_path=dl_result.get("subs_path"),
         )
 
         if not analysis.clips:

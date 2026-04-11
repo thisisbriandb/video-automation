@@ -262,6 +262,10 @@ const API = '';
 let eventSource = null;
 let timerInterval = null;
 let startTime = null;
+let currentJobId = null;
+let pollInterval = null;
+let sseRetries = 0;
+const MAX_SSE_RETRIES = 20;
 
 const $ = id => document.getElementById(id);
 
@@ -278,8 +282,19 @@ function formatTime(ms) {
     return `${m}:${String(s % 60).padStart(2, '0')}`;
 }
 
-function startTimer() {
-    startTime = Date.now();
+function saveJob(jobId, videoUrl) {
+    localStorage.setItem('vm_job', JSON.stringify({
+        jobId, videoUrl, startTime: startTime || Date.now()
+    }));
+}
+
+function clearJob() {
+    localStorage.removeItem('vm_job');
+    currentJobId = null;
+}
+
+function startTimer(from) {
+    startTime = from || Date.now();
     if (timerInterval) clearInterval(timerInterval);
     timerInterval = setInterval(() => {
         $('timer').textContent = formatTime(Date.now() - startTime);
@@ -288,6 +303,14 @@ function startTimer() {
 
 function stopTimer() {
     if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+}
+
+function stopPolling() {
+    if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+}
+
+function closeSSE() {
+    if (eventSource) { eventSource.close(); eventSource = null; }
 }
 
 function updateSteps(currentStatus) {
@@ -308,6 +331,13 @@ function updateSteps(currentStatus) {
     });
 }
 
+function showStatusUI() {
+    $('status-section').classList.remove('hidden');
+    $('result-section').classList.add('hidden');
+    $('error-text').classList.add('hidden');
+    $('progress-bar').classList.remove('error');
+}
+
 async function submitVideo() {
     const url = $('url-input').value.trim();
     if (!url) { $('url-input').focus(); return; }
@@ -315,11 +345,8 @@ async function submitVideo() {
     // Reset UI
     $('submit-btn').disabled = true;
     $('btn-text').textContent = 'Traitement...';
-    $('status-section').classList.remove('hidden');
-    $('result-section').classList.add('hidden');
-    $('error-text').classList.add('hidden');
+    showStatusUI();
     $('progress-bar').style.width = '0%';
-    $('progress-bar').classList.remove('error');
     $('progress-pct').textContent = '0%';
     $('progress-text').textContent = 'Envoi...';
     $('video-title').textContent = '';
@@ -352,6 +379,8 @@ async function submitVideo() {
             throw new Error(err.detail || 'Erreur serveur');
         }
         const data = await resp.json();
+        currentJobId = data.job_id;
+        saveJob(data.job_id, url);
         connectSSE(data.job_id);
     } catch (e) {
         showError(e.message);
@@ -361,19 +390,53 @@ async function submitVideo() {
 }
 
 function connectSSE(jobId) {
-    if (eventSource) eventSource.close();
+    closeSSE();
+    stopPolling();
+    sseRetries = 0;
+    _openSSE(jobId);
+}
+
+function _openSSE(jobId) {
+    closeSSE();
     eventSource = new EventSource(`${API}/api/events/${jobId}`);
 
     eventSource.onmessage = (event) => {
+        sseRetries = 0;  // reset on successful message
         const data = JSON.parse(event.data);
         handleUpdate(data);
     };
 
     eventSource.onerror = () => {
-        // SSE closed (server done or error) — try one final status poll
-        eventSource.close();
-        eventSource = null;
+        closeSSE();
+        sseRetries++;
+        if (sseRetries <= MAX_SSE_RETRIES) {
+            // Exponential backoff: 1s, 2s, 4s, ... capped at 10s
+            const delay = Math.min(1000 * Math.pow(2, sseRetries - 1), 10000);
+            console.log(`SSE disconnected, retry ${sseRetries}/${MAX_SSE_RETRIES} in ${delay}ms`);
+            setTimeout(() => _openSSE(jobId), delay);
+        } else {
+            // SSE failed too many times — fall back to polling
+            console.log('SSE failed, switching to polling');
+            startPolling(jobId);
+        }
     };
+}
+
+function startPolling(jobId) {
+    stopPolling();
+    pollInterval = setInterval(async () => {
+        try {
+            const resp = await fetch(`${API}/api/status/${jobId}`);
+            if (!resp.ok) { stopPolling(); return; }
+            const data = await resp.json();
+            handleUpdate(data);
+            if (data.status === 'completed' || data.status === 'failed') {
+                stopPolling();
+            }
+        } catch (e) {
+            console.warn('Poll error:', e);
+        }
+    }, 2000);
 }
 
 function handleUpdate(data) {
@@ -388,20 +451,30 @@ function handleUpdate(data) {
         $('video-title').textContent = data.video_title;
     }
 
+    // YouTube embed (in case of restore)
+    if (data.video_id && $('yt-iframe').src.indexOf(data.video_id) === -1) {
+        $('yt-iframe').src = `https://www.youtube.com/embed/${data.video_id}`;
+        $('yt-preview').classList.remove('hidden');
+    }
+
     // Steps
     updateSteps(data.status);
 
     // Terminal states
     if (data.status === 'completed') {
         stopTimer();
-        if (eventSource) { eventSource.close(); eventSource = null; }
+        closeSSE();
+        stopPolling();
+        clearJob();
         resetBtn();
         showResult(data);
     }
 
     if (data.status === 'failed') {
         stopTimer();
-        if (eventSource) { eventSource.close(); eventSource = null; }
+        closeSSE();
+        stopPolling();
+        clearJob();
         $('progress-bar').classList.add('error');
         showError(data.error || 'Le traitement a \u00e9chou\u00e9');
         resetBtn();
@@ -417,9 +490,10 @@ function showResult(data) {
     if (!data.clips || !data.clips.length) return;
 
     const totalDur = data.clips.reduce((s, c) => s + c.duration, 0);
+    const elapsed = startTime ? formatTime(Date.now() - startTime) : '';
     $('clips-summary').innerHTML =
         `<strong>${data.clips.length}</strong> clips g\u00e9n\u00e9r\u00e9s &middot; ${Math.round(totalDur)}s au total` +
-        ` &middot; <span style="color:var(--success)">${formatTime(Date.now() - startTime)}</span>`;
+        (elapsed ? ` &middot; <span style="color:var(--success)">${elapsed}</span>` : '');
 
     const grid = $('clips-grid');
     grid.innerHTML = '';
@@ -454,7 +528,51 @@ function resetBtn() {
     $('btn-text').textContent = 'G\u00e9n\u00e9rer';
 }
 
+// ── Restore in-progress job on page load ──────────────────────────
+async function restoreJob() {
+    const saved = localStorage.getItem('vm_job');
+    if (!saved) return;
+
+    try {
+        const { jobId, videoUrl, startTime: savedStart } = JSON.parse(saved);
+        // Check if job still exists on the server
+        const resp = await fetch(`${API}/api/status/${jobId}`);
+        if (!resp.ok) { clearJob(); return; }
+
+        const data = await resp.json();
+
+        // Job already finished — show result or error, then clear
+        if (data.status === 'completed' || data.status === 'failed') {
+            showStatusUI();
+            startTimer(savedStart);
+            handleUpdate(data);
+            return;
+        }
+
+        // Job still running — restore UI and reconnect
+        currentJobId = jobId;
+        $('submit-btn').disabled = true;
+        $('btn-text').textContent = 'Traitement...';
+        showStatusUI();
+
+        // Restore YouTube embed
+        const videoId = data.video_id || extractVideoId(videoUrl || '');
+        if (videoId) {
+            $('yt-iframe').src = `https://www.youtube.com/embed/${videoId}`;
+            $('yt-preview').classList.remove('hidden');
+        }
+
+        startTimer(savedStart);
+        handleUpdate(data);  // apply current state immediately
+        connectSSE(jobId);   // reconnect for live updates
+    } catch (e) {
+        console.warn('Failed to restore job:', e);
+        clearJob();
+    }
+}
+
 $('url-input').addEventListener('keydown', e => { if (e.key === 'Enter') submitVideo(); });
+restoreJob();
 </script>
 
 </body>

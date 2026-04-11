@@ -6,7 +6,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 from pathlib import Path
 from video_maker.config import WORKING_DIR, PROJECT_ROOT, FFMPEG_DIR
 from video_maker.utils import logger
@@ -142,56 +141,6 @@ def _make_job_dir(job_id: str) -> Path:
     return job_dir
 
 
-def _download_subtitles(url: str, job_dir: Path) -> Path | None:
-    """Download YouTube auto-generated subtitles in JSON3 format (word-level timestamps).
-
-    Returns path to the JSON3 file, or None if unavailable.
-    """
-    subs_template = str(job_dir / "subs")
-
-    ydl_opts = {
-        "quiet": True,
-        "no_warnings": True,
-        "writeautomaticsub": True,
-        "subtitlesformat": "json3",
-        "subtitleslangs": ["fr", "en"],
-        "skip_download": True,
-        "outtmpl": subs_template,
-        "ffmpeg_location": str(FFMPEG_DIR),
-        **_get_auth_opts(),
-    }
-
-    for attempt in range(3):
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
-            break
-        except Exception as e:
-            if "429" in str(e) and attempt < 2:
-                wait = (attempt + 1) * 3
-                logger.warning(f"Subtitle download 429 — retrying in {wait}s (attempt {attempt+1}/3)")
-                time.sleep(wait)
-                continue
-            logger.warning(f"Subtitle download failed: {e}")
-            return None
-
-    # Prefer fr > en > any available
-    for lang in ["fr", "en"]:
-        p = job_dir / f"subs.{lang}.json3"
-        if p.exists() and p.stat().st_size > 0:
-            logger.info(f"YouTube subtitles downloaded: {p.name} ({p.stat().st_size:,} bytes)")
-            return p
-
-    json3_files = sorted(job_dir.glob("subs.*.json3"))
-    if json3_files:
-        p = json3_files[0]
-        logger.info(f"YouTube subtitles downloaded: {p.name} ({p.stat().st_size:,} bytes)")
-        return p
-
-    logger.info("No YouTube auto-generated subtitles available")
-    return None
-
-
 def download_video(url: str, job_id: str, progress_callback=None) -> dict:
     """Download a YouTube video (high-res only).
 
@@ -264,14 +213,6 @@ def download_video(url: str, job_id: str, progress_callback=None) -> dict:
     result["video_path"] = video_path
     size_mb = video_path.stat().st_size / 1024 / 1024
     logger.info(f"[{job_id}] Download complete: {size_mb:.1f} MB")
-
-    # ── Step 3: Download YouTube subtitles (word-level JSON3) ──────
-    # Wait a few seconds after heavy download to avoid YouTube 429 rate-limit
-    logger.info(f"[{job_id}] Waiting 5s before subtitle fetch (avoid 429)...")
-    time.sleep(5)
-    logger.info(f"[{job_id}] Fetching YouTube subtitles...")
-    subs_path = _download_subtitles(url, job_dir)
-    result["subs_path"] = subs_path
 
     return result
 

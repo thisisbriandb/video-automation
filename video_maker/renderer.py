@@ -192,9 +192,11 @@ def render_clip(
 
     # ── Generate Hormozi-style SRT file ─────────────────────────────
     srt_path = None
+    logger.info(f"{prefix}Subtitle words: {len(segment.words)}")
     if segment.words:
         srt_path = output_path.parent / f"{output_path.stem}.srt"
         words_to_hormozi_srt(segment.words, srt_path, words_per_chunk=SUBTITLE_WORDS_PER_CHUNK, uppercase=SUBTITLE_UPPERCASE)
+        logger.info(f"{prefix}SRT written: {srt_path} (exists={srt_path.exists()}, size={srt_path.stat().st_size}B)")
 
     # ── Build filter chain ──────────────────────────────────────────
     filters = []
@@ -230,7 +232,11 @@ def render_clip(
             srt_rel = srt_path
         srt_escaped = str(srt_rel).replace("\\", "/")
         style = _build_subtitle_style()
-        filters.append(f"subtitles={srt_escaped}:force_style='{style}'")
+        sub_filter = f"subtitles={srt_escaped}:force_style='{style}'"
+        logger.info(f"{prefix}Subtitle filter: {sub_filter[:150]}")
+        filters.append(sub_filter)
+    else:
+        logger.warning(f"{prefix}NO subtitle filter added! srt_path={srt_path}, exists={srt_path.exists() if srt_path else 'N/A'}")
 
     vf = ",".join(filters)
 

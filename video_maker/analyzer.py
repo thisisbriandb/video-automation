@@ -16,7 +16,7 @@ from video_maker.scorer import (
     _expand_to_min_duration,
     _merge_overlapping,
 )
-from video_maker.transcriber import transcribe_segment_from_file
+from video_maker.transcriber import transcribe_segment_from_file, unload_model
 from video_maker.utils import logger
 
 
@@ -115,6 +115,12 @@ def analyze_video(
         audio_file = audio_files.get(rank)
         if audio_file and audio_file.exists():
             audio_file.unlink()
+
+    # Free Whisper model + scoring audio from memory before rendering
+    unload_model()
+    if audio_path.exists():
+        audio_path.unlink()
+        logger.info("Freed scoring audio WAV from disk")
 
     n_with_subs = sum(1 for c in clips if c.words)
     logger.info(

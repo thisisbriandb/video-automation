@@ -6,7 +6,7 @@ import uuid
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
-from video_maker.config import WORKING_DIR, OUTPUT_DIR, NUM_WORKERS
+from video_maker.config import WORKING_DIR, OUTPUT_DIR, NUM_WORKERS, RENDER_WORKERS
 from video_maker.models import (
     JobStatus,
     PipelineStatus,
@@ -170,7 +170,7 @@ def _run_pipeline_sync(job_id: str, youtube_url: str) -> None:
                 f"{clip.start:.1f}s\u2192{clip.end:.1f}s, "
                 f"{len(clip.words)} subtitle words"
             )
-        logger.info(f"[{job_id}] {num_clips} clips identified, starting render (workers={NUM_WORKERS})...")
+        logger.info(f"[{job_id}] {num_clips} clips identified, starting render (workers={RENDER_WORKERS})...")
 
         # Probe video dimensions once (not in each worker)
         probe = _probe_video(video_path)
@@ -200,7 +200,7 @@ def _run_pipeline_sync(job_id: str, youtube_url: str) -> None:
                 progress=f"Rendu clip {rendered_count[0]}/{num_clips}...",
             )
 
-        with ThreadPoolExecutor(max_workers=NUM_WORKERS) as render_pool:
+        with ThreadPoolExecutor(max_workers=RENDER_WORKERS) as render_pool:
             futures = []
             for idx, segment in enumerate(analysis.clips):
                 fut = render_pool.submit(

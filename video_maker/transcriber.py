@@ -1,6 +1,7 @@
 import subprocess
 import threading
 import torch
+import gc
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import List
@@ -8,6 +9,10 @@ from typing import List
 from video_maker.config import FFMPEG_DIR, WHISPER_MODEL, NUM_WORKERS
 from video_maker.models import SubtitleWord
 from video_maker.utils import logger
+
+# Minimum audio file size (bytes) to attempt transcription — below this, Whisper
+# crashes with tensor reshape errors because the mel spectrogram is degenerate.
+_MIN_AUDIO_BYTES = 32_000  # ~1 second at 16kHz 16-bit mono
 
 # Max seconds to spend on a single clip transcription before giving up
 WHISPER_TIMEOUT = int(__import__('os').environ.get('WHISPER_TIMEOUT', '120'))
@@ -27,6 +32,18 @@ def _get_model():
         logger.info(f"Loading Whisper model ({WHISPER_MODEL}) on {device}...")
         _model = whisper.load_model(WHISPER_MODEL, device=device)
     return _model
+
+
+def unload_model():
+    """Free the Whisper model from memory (call after transcription is done)."""
+    global _model
+    if _model is not None:
+        del _model
+        _model = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        logger.info("Whisper model unloaded from memory")
 
 
 def _extract_segment_audio(
@@ -102,8 +119,17 @@ def transcribe_segment_from_file(audio_file: Path) -> List[SubtitleWord]:
     Skips the FFmpeg extraction step — audio_file must already be 16kHz mono WAV.
     Uses a thread-based timeout to prevent infinite hangs on slow CPUs.
     """
+    # Validate audio file before loading the model
+    if not audio_file.exists():
+        logger.error(f"Audio file does not exist: {audio_file}")
+        return []
+    fsize = audio_file.stat().st_size
+    if fsize < _MIN_AUDIO_BYTES:
+        logger.warning(f"Audio file too small ({fsize} bytes), skipping: {audio_file.name}")
+        return []
+
     model = _get_model()
-    logger.info(f"Transcribing {audio_file.name} (timeout={WHISPER_TIMEOUT}s)...")
+    logger.info(f"Transcribing {audio_file.name} ({fsize} bytes, timeout={WHISPER_TIMEOUT}s)...")
 
     # Run transcription in a thread so we can enforce a timeout
     result_container: list = []

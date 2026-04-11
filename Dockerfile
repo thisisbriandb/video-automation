@@ -44,7 +44,7 @@ RUN mkdir -p workdir output
 
 # Railway sets PORT env var
 ENV PORT=8001
-ENV WHISPER_MODEL=small
+ENV WHISPER_MODEL=tiny
 ENV FFMPEG_DIR=/usr/bin
 # Cookies: set YOUTUBE_COOKIES env var on Railway (base64-encoded Netscape cookies)
 # The downloader auto-decodes and writes to a temp file at runtime

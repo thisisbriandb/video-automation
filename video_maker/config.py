@@ -45,6 +45,10 @@ TOP_PRESCORE: int = int(_get("TOP_PRESCORE", "40"))  # candidate segments before
 # Override via NUM_WORKERS env var for beefier machines.
 NUM_WORKERS: int = int(_get("NUM_WORKERS", "2"))
 
+# Render workers: how many clips to render simultaneously.
+# Default 1 to avoid OOM — each render runs FFmpeg + face detection.
+RENDER_WORKERS: int = int(_get("RENDER_WORKERS", "1"))
+
 # Subtitles
 SUBTITLE_WORDS_PER_CHUNK: int = int(_get("SUBTITLE_WORDS_PER_CHUNK", "3"))
 SUBTITLE_UPPERCASE: bool = _get("SUBTITLE_UPPERCASE", "true").lower() == "true"

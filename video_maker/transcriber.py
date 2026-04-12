@@ -14,8 +14,9 @@ from video_maker.utils import logger
 # crashes with tensor reshape errors because the mel spectrogram is degenerate.
 _MIN_AUDIO_BYTES = 32_000  # ~1 second at 16kHz 16-bit mono
 
-# Max seconds to spend on a single clip transcription before giving up
-WHISPER_TIMEOUT = int(__import__('os').environ.get('WHISPER_TIMEOUT', '120'))
+# Max seconds to spend on a single clip transcription before giving up.
+# Medium model on CPU needs ~3-5 min per 60s clip; default must be generous.
+WHISPER_TIMEOUT = int(__import__('os').environ.get('WHISPER_TIMEOUT', '600'))
 
 import sys as _sys
 FFMPEG_BIN = str(FFMPEG_DIR / ("ffmpeg.exe" if _sys.platform == "win32" else "ffmpeg"))

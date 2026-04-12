@@ -12,6 +12,9 @@ workdir/
 .env
 google_cookies.txt
 
+# modèles DNN (auto-téléchargés)
+models/
+
 # gros fichiers
 *.zip
 *.tar

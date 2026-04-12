@@ -49,20 +49,7 @@ def _average_face_x(keyframes: list[FaceKeyframe], fallback: int) -> int:
 
 
 # Maximum keyframes in the FFmpeg expression (avoid overly deep nesting)
-_MAX_EXPR_KEYFRAMES = 40
-
-
-def _smooth_positions(values: list[float], window: int = 5) -> list[float]:
-    """Smooth a list of values with centered moving average for fluid crop motion."""
-    if len(values) <= window:
-        return values
-    smoothed = []
-    half = window // 2
-    for i in range(len(values)):
-        lo = max(0, i - half)
-        hi = min(len(values), i + half + 1)
-        smoothed.append(sum(values[lo:hi]) / (hi - lo))
-    return smoothed
+_MAX_EXPR_KEYFRAMES = 60
 
 
 def _build_dynamic_crop_x(
@@ -86,29 +73,20 @@ def _build_dynamic_crop_x(
     max_x = max(0, src_width - crop_w)
 
     # Convert face center X → crop_x (left edge of crop window), clamped
+    # Keyframes arrive already EMA-smoothed and dead-zone filtered from vision.py
     times = [kf.time for kf in keyframes]
-    raw_xs = [int(clamp(kf.x - half, 0, max_x)) for kf in keyframes]
-
-    # Extend to cover full clip duration at boundaries
-    if times[0] > 0.1:
-        times.insert(0, 0.0)
-        raw_xs.insert(0, raw_xs[0])
-    if times[-1] < clip_duration - 0.5:
-        times.append(clip_duration)
-        raw_xs.append(raw_xs[-1])
+    crop_xs = [int(clamp(kf.x - half, 0, max_x)) for kf in keyframes]
 
     # Subsample if too many keyframes (keep expression depth manageable)
     if len(times) > _MAX_EXPR_KEYFRAMES:
         step = len(times) / _MAX_EXPR_KEYFRAMES
         indices = [int(i * step) for i in range(_MAX_EXPR_KEYFRAMES - 1)] + [len(times) - 1]
         times = [times[i] for i in indices]
-        raw_xs = [raw_xs[i] for i in indices]
+        crop_xs = [crop_xs[i] for i in indices]
 
-    # Smooth with moving average for fluid motion
-    smoothed = _smooth_positions([float(x) for x in raw_xs], window=5)
-    crop_xs = [int(round(clamp(x, 0, max_x))) for x in smoothed]
-
-    # Build nested if(lt(t, t_i), interpolation, fallback) expression
+    # Build nested if(lt(t, t_i), smoothstep_interp, fallback) expression
+    # Smoothstep: p = (t-t0)/dt; eased = p*p*(3-2*p); x = x0 + (x1-x0)*eased
+    # Gives natural ease-in / ease-out camera movement
     expr = str(crop_xs[-1])  # last position as ultimate fallback
 
     for i in range(len(times) - 2, -1, -1):
@@ -121,7 +99,9 @@ def _build_dynamic_crop_x(
         if x0 == x1:
             seg = str(x0)
         else:
-            seg = f"{x0}+{x1 - x0}*(t-{t0:.2f})/{dt:.2f}"
+            # Smoothstep easing: p*(p*(3-2*p)) where p = (t-t0)/dt
+            p = f"(t-{t0:.2f})/{dt:.2f}"
+            seg = f"{x0}+{x1 - x0}*{p}*{p}*(3-2*{p})"
 
         expr = f"if(lt(t,{t1:.2f}),{seg},{expr})"
 

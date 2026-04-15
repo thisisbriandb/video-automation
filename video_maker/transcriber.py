@@ -4,11 +4,17 @@ import torch
 import gc
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import List
+from typing import List, NamedTuple
 
 from video_maker.config import FFMPEG_DIR, WHISPER_MODEL, NUM_WORKERS
 from video_maker.models import SubtitleWord
 from video_maker.utils import logger
+
+
+class TranscriptionResult(NamedTuple):
+    """Whisper transcription output: words + auto-detected language."""
+    words: List[SubtitleWord]
+    language: str  # ISO 639-1 code (e.g. 'fr', 'en', 'es')
 
 # Minimum audio file size (bytes) to attempt transcription — below this, Whisper
 # crashes with tensor reshape errors because the mel spectrogram is degenerate.
@@ -114,20 +120,21 @@ def transcribe_segment(
             temp_audio.unlink()
 
 
-def transcribe_segment_from_file(audio_file: Path) -> List[SubtitleWord]:
+def transcribe_segment_from_file(audio_file: Path) -> TranscriptionResult:
     """Transcribe a pre-extracted audio file directly with Whisper (single model).
 
     Skips the FFmpeg extraction step — audio_file must already be 16kHz mono WAV.
     Uses a thread-based timeout to prevent infinite hangs on slow CPUs.
+    Returns TranscriptionResult(words, language) with auto-detected language.
     """
     # Validate audio file before loading the model
     if not audio_file.exists():
         logger.error(f"Audio file does not exist: {audio_file}")
-        return []
+        return TranscriptionResult(words=[], language="fr")
     fsize = audio_file.stat().st_size
     if fsize < _MIN_AUDIO_BYTES:
         logger.warning(f"Audio file too small ({fsize} bytes), skipping: {audio_file.name}")
-        return []
+        return TranscriptionResult(words=[], language="fr")
 
     model = _get_model()
     logger.info(f"Transcribing {audio_file.name} ({fsize} bytes, timeout={WHISPER_TIMEOUT}s)...")
@@ -141,7 +148,6 @@ def transcribe_segment_from_file(audio_file: Path) -> List[SubtitleWord]:
             r = model.transcribe(
                 str(audio_file),
                 task="transcribe",
-                language="fr",
                 word_timestamps=True,
                 verbose=False,
             )
@@ -155,17 +161,18 @@ def transcribe_segment_from_file(audio_file: Path) -> List[SubtitleWord]:
 
     if t.is_alive():
         logger.warning(f"Whisper TIMEOUT ({WHISPER_TIMEOUT}s) for {audio_file.name} — skipping")
-        return []
+        return TranscriptionResult(words=[], language="fr")
 
     if error_container:
         logger.error(f"Transcription failed for {audio_file.name}: {error_container[0]}")
-        return []
+        return TranscriptionResult(words=[], language="fr")
 
     if not result_container:
         logger.error(f"Transcription returned no result for {audio_file.name}")
-        return []
+        return TranscriptionResult(words=[], language="fr")
 
     result = result_container[0]
+    detected_lang = result.get("language", "fr")
     words: List[SubtitleWord] = []
     for seg in result.get("segments", []):
         for w in seg.get("words", []):
@@ -177,8 +184,8 @@ def transcribe_segment_from_file(audio_file: Path) -> List[SubtitleWord]:
                     word=text,
                 ))
 
-    logger.info(f"Transcription complete: {len(words)} words")
-    return words
+    logger.info(f"Transcription complete: {len(words)} words, language={detected_lang}")
+    return TranscriptionResult(words=words, language=detected_lang)
 
 
 # ── Parallel Whisper (CPU workers) ─────────────────────────────────

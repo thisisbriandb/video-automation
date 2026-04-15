@@ -82,6 +82,7 @@ def analyze_video(
     WHISPER_TOTAL_BUDGET = int(__import__('os').environ.get('WHISPER_TOTAL_BUDGET', '600'))
     logger.info(f"Transcribing {n_clips} final clips with Whisper (budget: {WHISPER_TOTAL_BUDGET}s)...")
     transcriptions: dict[int, list] = {}
+    detected_languages: list[str] = []
 
     t_whisper = time.time()
     for rank, path in audio_files.items():
@@ -93,8 +94,16 @@ def analyze_video(
                 f"— skipping remaining {len(audio_files) - len(transcriptions)} clips"
             )
             break
-        transcriptions[rank] = transcribe_segment_from_file(path)
-        logger.info(f"  [{rank + 1}/{n_clips}] {len(transcriptions[rank])} words ({time.time() - t_whisper:.0f}s elapsed)")
+        result = transcribe_segment_from_file(path)
+        transcriptions[rank] = result.words
+        if result.words:  # only count language from non-empty transcriptions
+            detected_languages.append(result.language)
+        logger.info(f"  [{rank + 1}/{n_clips}] {len(result.words)} words, lang={result.language} ({time.time() - t_whisper:.0f}s elapsed)")
+
+    # Determine video language by majority vote
+    from collections import Counter
+    video_language = Counter(detected_languages).most_common(1)[0][0] if detected_languages else "fr"
+    logger.info(f"Detected video language: {video_language}")
 
     clips = []
     for rank, seg in enumerate(final_segments):
@@ -109,6 +118,7 @@ def analyze_video(
             title=f"Clip #{rank + 1} ({clip_dur:.0f}s)",
             hook_reason=f"audio={seg.audio_score:.2f} visual={seg.visual_score:.2f}",
             words=words,
+            language=video_language,
         ))
 
         # Cleanup temp audio

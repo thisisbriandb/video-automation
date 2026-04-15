@@ -63,7 +63,7 @@ def _render_one_clip(
     src_height: int,
     job_id: str,
 ) -> ClipResponse | None:
-    """Render a single clip: face detection → FFmpeg render. Runs in a worker thread."""
+    """Render a single clip: face detection → (dubbing) → FFmpeg render. Runs in a worker thread."""
     clip_duration = round(segment.end - segment.start, 1)
     output_filename = f"clip_{idx + 1:02d}.mp4"
     output_path = output_job_dir / output_filename
@@ -81,6 +81,26 @@ def _render_one_clip(
         except Exception as e:
             logger.error(f"{prefix} Face detection failed: {e}")
 
+        # Dubbing: translate + TTS if source is not French
+        dubbed_audio_path = None
+        if segment.language and segment.language != "fr" and segment.words:
+            logger.info(f"{prefix} Dubbing: {segment.language} → fr")
+            try:
+                from video_maker.dubbing import create_dubbed_audio, translate_words
+                dubbed_audio_path = create_dubbed_audio(
+                    words=segment.words,
+                    source_lang=segment.language,
+                    clip_start=segment.start,
+                    clip_duration=clip_duration,
+                    source_path=video_path,
+                    work_dir=output_job_dir,
+                )
+                # Replace subtitles with French translation
+                segment.words = translate_words(segment.words, segment.language)
+                logger.info(f"{prefix} Dubbing complete: audio={'OK' if dubbed_audio_path else 'FAILED'}")
+            except Exception as e:
+                logger.error(f"{prefix} Dubbing failed: {e}")
+
         # Render
         logger.info(f"{prefix} Rendering {clip_duration}s clip...")
         render_clip(
@@ -90,6 +110,7 @@ def _render_one_clip(
             src_width=src_width,
             src_height=src_height,
             job_id=job_id,
+            dubbed_audio_path=dubbed_audio_path,
         )
 
         return ClipResponse(

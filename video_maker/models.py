@@ -46,6 +46,7 @@ class ClipSegment(BaseModel):
     hook_reason: str = Field("", description="Why this moment is the best hook")
     face_keyframes: list[FaceKeyframe] = Field(default_factory=list)
     words: list[SubtitleWord] = Field(default_factory=list)
+    language: str = Field("fr", description="Detected language code (ISO 639-1)")
 
 
 class AnalysisResult(BaseModel):

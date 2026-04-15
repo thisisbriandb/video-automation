@@ -139,6 +139,7 @@ def render_clip(
     src_width: int = 1920,
     src_height: int = 1080,
     job_id: str = "",
+    dubbed_audio_path: Path | None = None,
 ) -> Path:
     """Render a single 9:16 clip from a landscape source video.
 
@@ -226,6 +227,8 @@ def render_clip(
 
     # ── Build FFmpeg command ────────────────────────────────────────
     # Note: -threads 2 is a safe limit to avoid oversubscription when running parallel workers
+    use_dubbed = dubbed_audio_path and Path(str(dubbed_audio_path)).exists()
+
     cmd = [
         FFMPEG_BIN,
         "-y",
@@ -233,6 +236,15 @@ def render_clip(
         "-ss", f"{segment.start:.3f}",
         "-t", f"{duration:.3f}",
         "-i", str(source_path),
+    ]
+
+    if use_dubbed:
+        # Second input: pre-mixed dubbed audio (already trimmed to clip duration)
+        cmd.extend(["-i", str(dubbed_audio_path)])
+        cmd.extend(["-map", "0:v", "-map", "1:a"])
+        logger.info(f"{prefix}Using dubbed audio: {dubbed_audio_path}")
+
+    cmd.extend([
         "-vf", vf,
         "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
         "-c:v", "libx264",
@@ -243,7 +255,7 @@ def render_clip(
         "-ar", "44100",
         "-movflags", "+faststart",
         str(output_path),
-    ]
+    ])
 
     logger.info(f"{prefix}FFmpeg command:\n  {' '.join(cmd)}")
 
@@ -261,6 +273,13 @@ def render_clip(
     # Clean up SRT
     if srt_path and srt_path.exists():
         srt_path.unlink()
+
+    # Clean up dubbed audio
+    if use_dubbed:
+        try:
+            Path(str(dubbed_audio_path)).unlink(missing_ok=True)
+        except Exception:
+            pass
 
     file_size_mb = output_path.stat().st_size / 1024 / 1024
     logger.info(f"{prefix}Clip rendered: {output_path.name} ({file_size_mb:.1f} MB)")

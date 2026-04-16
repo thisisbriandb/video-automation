@@ -212,8 +212,10 @@ def render_clip(
     filters.append("format=yuv420p")
 
     # Hook text overlay (first 4 seconds — viral TikTok-style accroche)
+    # Only show if it's a real Gemini hook (skip scoring-mode debug strings like "audio=0.84 visual=0.99")
     hook_text = (segment.hook_reason or "").strip()
-    if hook_text and len(hook_text) > 5:
+    _is_real_hook = hook_text and len(hook_text) > 5 and not hook_text.startswith("audio=")
+    if _is_real_hook:
         # Escape special chars for FFmpeg drawtext
         ht = hook_text.replace("\\", "\\\\").replace("'", "\u2019").replace(":", "\\:")
         ht = ht.replace("%", "%%")
@@ -223,8 +225,15 @@ def render_clip(
             space_idx = ht.rfind(" ", 0, mid + 10)
             if space_idx > 10:
                 ht = ht[:space_idx] + "\n" + ht[space_idx + 1:]
+        # Use explicit fontfile to avoid Fontconfig crash on Windows
+        if _sys.platform == "win32":
+            _font = "C\\\\:/Windows/Fonts/impact.ttf"
+            font_param = f":fontfile='{_font}'"
+        else:
+            font_param = ""
         filters.append(
             f"drawtext=text='{ht}'"
+            f"{font_param}"
             f":fontsize=52:fontcolor=white"
             f":borderw=3:bordercolor=black"
             f":x=(w-text_w)/2:y=h*0.15"
@@ -232,6 +241,9 @@ def render_clip(
             f":alpha='if(lt(t,0.8),(t-0.3)/0.5,if(gt(t,3.2),1-(t-3.2)/0.8,1))'"
         )
         logger.info(f"{prefix}Hook overlay: \"{hook_text[:50]}\"")
+    elif hook_text:
+        logger.info(f"{prefix}Skipping hook overlay (not a Gemini hook): \"{hook_text[:50]}\"")
+
 
     # Burn subtitles (after scale so coords match output resolution)
     # Use relative path to avoid Windows drive-letter colon breaking FFmpeg filter parser

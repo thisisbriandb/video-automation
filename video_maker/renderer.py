@@ -175,6 +175,9 @@ def render_clip(
 
     crop_y = int(clamp((real_h - crop_h) // 2, 0, real_h - crop_h))
 
+    # ── Ensure output directory exists ──────────────────────────────
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
     # ── Generate Hormozi-style SRT file ─────────────────────────────
     srt_path = None
     logger.info(f"{prefix}Subtitle words: {len(segment.words)}")

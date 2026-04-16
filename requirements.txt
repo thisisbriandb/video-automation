@@ -14,3 +14,4 @@ scipy
 soundfile
 edge-tts>=7.0.0
 deep-translator>=1.11.0
+google-genai>=1.0.0

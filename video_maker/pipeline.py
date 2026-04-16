@@ -164,16 +164,19 @@ def _run_pipeline_sync(job_id: str, youtube_url: str) -> None:
         )
         logger.info(f"[{job_id}] Download complete: {dl_result['title']}")
 
-        # ── Step 2: Local analysis (scoring + Whisper + ranking) ────
+        # ── Step 2: Analysis (Gemini or local scoring + Whisper) ────
+        from video_maker.config import GEMINI_API_KEY
+        analysis_mode = "Gemini" if GEMINI_API_KEY else "locale"
         _update_job(
             job_id,
             status=JobStatus.ANALYZING,
-            progress="Analyse audio + visuelle...",
+            progress=f"Analyse {analysis_mode}...",
             percent=35,
         )
         analysis = analyze_video(
             video_path=video_path,
             work_dir=job_dir,
+            youtube_url=youtube_url,
         )
 
         if not analysis.clips:

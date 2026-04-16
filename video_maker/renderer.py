@@ -211,6 +211,28 @@ def render_clip(
     # Pixel format (must come before subtitles)
     filters.append("format=yuv420p")
 
+    # Hook text overlay (first 4 seconds — viral TikTok-style accroche)
+    hook_text = (segment.hook_reason or "").strip()
+    if hook_text and len(hook_text) > 5:
+        # Escape special chars for FFmpeg drawtext
+        ht = hook_text.replace("\\", "\\\\").replace("'", "\u2019").replace(":", "\\:")
+        ht = ht.replace("%", "%%")
+        # Wrap long hooks into 2 lines (~30 chars max per line)
+        if len(ht) > 30:
+            mid = len(ht) // 2
+            space_idx = ht.rfind(" ", 0, mid + 10)
+            if space_idx > 10:
+                ht = ht[:space_idx] + "\n" + ht[space_idx + 1:]
+        filters.append(
+            f"drawtext=text='{ht}'"
+            f":fontsize=52:fontcolor=white"
+            f":borderw=3:bordercolor=black"
+            f":x=(w-text_w)/2:y=h*0.15"
+            f":enable='between(t,0.3,4)'"
+            f":alpha='if(lt(t,0.8),(t-0.3)/0.5,if(gt(t,3.2),1-(t-3.2)/0.8,1))'"
+        )
+        logger.info(f"{prefix}Hook overlay: \"{hook_text[:50]}\"")
+
     # Burn subtitles (after scale so coords match output resolution)
     # Use relative path to avoid Windows drive-letter colon breaking FFmpeg filter parser
     if srt_path and srt_path.exists():

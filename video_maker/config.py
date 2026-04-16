@@ -64,6 +64,10 @@ SUBTITLE_UPPERCASE: bool = _get("SUBTITLE_UPPERCASE", "true").lower() == "true"
 # Whisper
 WHISPER_MODEL: str = _get("WHISPER_MODEL", "small")
 
+# Gemini (for intelligent video segmentation)
+GEMINI_API_KEY: str = _get("GEMINI_API_KEY", "")
+GEMINI_MODEL: str = _get("GEMINI_MODEL", "gemini-2.0-flash")
+
 # Ensure dirs exist
 WORKING_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

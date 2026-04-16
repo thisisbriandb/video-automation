@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 from video_maker.config import FFMPEG_DIR, SUBTITLE_WORDS_PER_CHUNK, SUBTITLE_UPPERCASE
 from video_maker.models import ClipSegment, FaceKeyframe
-from video_maker.utils import logger, words_to_hormozi_srt, clamp
+from video_maker.utils import logger, words_to_hormozi_ass, clamp
 
 import sys as _sys
 FFMPEG_BIN = str(FFMPEG_DIR / ("ffmpeg.exe" if _sys.platform == "win32" else "ffmpeg"))
@@ -112,25 +112,6 @@ def _build_dynamic_crop_x(
     return expr.replace(",", "\\,")
 
 
-def _build_subtitle_style() -> str:
-    """Return ASS-style override for Hormozi-style subtitles.
-    
-    Note: ASS default PlayResY=288. All MarginV/FontSize values are in that
-    coordinate space, NOT in actual video pixels.
-    """
-    return (
-        "FontName=Impact,"
-        "FontSize=16,"
-        "PrimaryColour=&H00FFFFFF,"
-        "OutlineColour=&H00000000,"
-        "BackColour=&H00000000,"
-        "Bold=1,"
-        "Outline=2,"
-        "Shadow=0,"
-        "Alignment=2,"
-        "MarginV=35"
-    )
-
 
 def render_clip(
     source_path: Path,
@@ -178,13 +159,13 @@ def render_clip(
     # ── Ensure output directory exists ──────────────────────────────
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # ── Generate Hormozi-style SRT file ─────────────────────────────
-    srt_path = None
+    # ── Generate Hormozi-style ASS subtitle file (styles embedded) ──
+    sub_path = None
     logger.info(f"{prefix}Subtitle words: {len(segment.words)}")
     if segment.words:
-        srt_path = output_path.parent / f"{output_path.stem}.srt"
-        words_to_hormozi_srt(segment.words, srt_path, words_per_chunk=SUBTITLE_WORDS_PER_CHUNK, uppercase=SUBTITLE_UPPERCASE)
-        logger.info(f"{prefix}SRT written: {srt_path} (exists={srt_path.exists()}, size={srt_path.stat().st_size}B)")
+        sub_path = output_path.parent / f"{output_path.stem}.ass"
+        words_to_hormozi_ass(segment.words, sub_path, words_per_chunk=SUBTITLE_WORDS_PER_CHUNK, uppercase=SUBTITLE_UPPERCASE)
+        logger.info(f"{prefix}ASS written: {sub_path} (exists={sub_path.exists()}, size={sub_path.stat().st_size}B)")
 
     # ── Build filter chain ──────────────────────────────────────────
     filters = []
@@ -244,19 +225,18 @@ def render_clip(
         logger.info(f"{prefix}Skipping hook overlay (not a Gemini hook): \"{hook_text[:50]}\"")
 
     # Burn subtitles (after scale so coords match output resolution)
-    # Use relative path to avoid Windows drive-letter colon breaking FFmpeg filter parser
-    if srt_path and srt_path.exists():
+    # ASS file has styles embedded — no force_style needed, no escaping issues
+    if sub_path and sub_path.exists():
         try:
-            srt_rel = srt_path.relative_to(Path.cwd())
+            sub_rel = sub_path.relative_to(Path.cwd())
         except ValueError:
-            srt_rel = srt_path
-        srt_escaped = str(srt_rel).replace("\\", "/")
-        style = _build_subtitle_style()
-        sub_filter = f"subtitles={srt_escaped}:force_style='{style}'"
-        logger.info(f"{prefix}Subtitle filter: {sub_filter[:150]}")
+            sub_rel = sub_path
+        sub_escaped = str(sub_rel).replace("\\", "/")
+        sub_filter = f"subtitles={sub_escaped}"
+        logger.info(f"{prefix}Subtitle filter: {sub_filter}")
         filters.append(sub_filter)
     else:
-        logger.warning(f"{prefix}NO subtitle filter added! srt_path={srt_path}, exists={srt_path.exists() if srt_path else 'N/A'}")
+        logger.warning(f"{prefix}NO subtitle filter added! sub_path={sub_path}, exists={sub_path.exists() if sub_path else 'N/A'}")
 
     vf = ",".join(filters)
 
@@ -289,7 +269,7 @@ def render_clip(
         "-b:a", "128k",
         "-ar", "44100",
         "-movflags", "+faststart",
-        str(output_path),
+        str(output_path).replace("\\", "/"),
     ])
 
     logger.info(f"{prefix}FFmpeg command:\n  {' '.join(cmd)}")
@@ -305,9 +285,9 @@ def render_clip(
         logger.error(f"{prefix}FFmpeg stderr:\n{result.stderr[-2000:]}")
         raise RuntimeError(f"FFmpeg failed (exit code {result.returncode}): {result.stderr[-500:]}")
 
-    # Clean up temp files (SRT + hook text)
-    if srt_path and srt_path.exists():
-        srt_path.unlink()
+    # Clean up temp files (ASS + hook text)
+    if sub_path and sub_path.exists():
+        sub_path.unlink()
     if hook_file and hook_file.exists():
         hook_file.unlink()
 

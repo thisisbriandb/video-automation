@@ -84,3 +84,79 @@ def words_to_hormozi_srt(
     generate_srt(chunks, output_path)
     logger.info(f"Generated Hormozi SRT: {output_path.name} ({len(chunks)} chunks from {len(words)} words)")
     return output_path
+
+
+def _format_ass_time(seconds: float) -> str:
+    """Convert seconds to ASS timestamp format H:MM:SS.CC (centiseconds)."""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    centis = int(round((seconds % 1) * 100))
+    return f"{hours}:{minutes:02d}:{secs:02d}.{centis:02d}"
+
+
+def words_to_hormozi_ass(
+    words: list[SubtitleWord],
+    output_path: Path,
+    words_per_chunk: int = 3,
+    uppercase: bool = True,
+) -> Path:
+    """Generate Hormozi-style ASS subtitle file with embedded styles.
+
+    Uses ASS format so FFmpeg subtitles filter needs NO force_style parameter,
+    avoiding all filter-chain escaping issues on Windows.
+    """
+    # ASS header with embedded style
+    header = (
+        "[Script Info]\n"
+        "ScriptType: v4.00+\n"
+        "PlayResX: 1080\n"
+        "PlayResY: 1920\n"
+        "WrapStyle: 0\n"
+        "\n"
+        "[V4+ Styles]\n"
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
+        "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
+        "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
+        "Alignment, MarginL, MarginR, MarginV, Encoding\n"
+        "Style: Default,Impact,80,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,"
+        "-1,0,0,0,100,100,0,0,1,4,0,2,10,10,180,1\n"
+        "\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    )
+
+    if not words:
+        output_path.write_text(header, encoding="utf-8-sig")
+        return output_path
+
+    # Group words into chunks
+    chunks: list[SubtitleLine] = []
+    i = 0
+    while i < len(words):
+        group = words[i : i + words_per_chunk]
+        text = " ".join(w.word for w in group)
+        if uppercase:
+            text = text.upper()
+        chunks.append(SubtitleLine(
+            start=group[0].start,
+            end=group[-1].end,
+            text=text,
+        ))
+        i += words_per_chunk
+
+    # Ensure no gap between chunks (avoids flicker)
+    for j in range(len(chunks) - 1):
+        if chunks[j].end < chunks[j + 1].start:
+            chunks[j].end = chunks[j + 1].start
+
+    # Build dialogue lines
+    lines = [header]
+    for chunk in chunks:
+        start_ts = _format_ass_time(chunk.start)
+        end_ts = _format_ass_time(chunk.end)
+        lines.append(f"Dialogue: 0,{start_ts},{end_ts},Default,,0,0,0,,{chunk.text}\n")
+
+    output_path.write_text("".join(lines), encoding="utf-8-sig")
+    logger.info(f"Generated Hormozi ASS: {output_path.name} ({len(chunks)} chunks from {len(words)} words)")
+    return output_path

@@ -216,22 +216,23 @@ def render_clip(
     hook_text = (segment.hook_reason or "").strip()
     _is_real_hook = hook_text and len(hook_text) > 5 and not hook_text.startswith("audio=")
     if _is_real_hook:
-        # Escape special chars for FFmpeg drawtext (outside quotes: \: for colon, \\ for backslash)
+        # Escape for FFmpeg drawtext: \: for colons, \\ for backslashes, \, for commas
         ht = hook_text.replace("\\", "\\\\").replace("'", "\u2019").replace(":", "\\:").replace("%", "%%")
-        # Use explicit fontfile on Windows to avoid Fontconfig crash
-        # Inside FFmpeg single quotes, colon is literal — no extra escaping needed
+        # Fontfile: escape colon with \: (no quotes — avoids quote conflicts with subtitles filter)
         if _sys.platform == "win32":
-            font_param = ":fontfile='C:/Windows/Fonts/impact.ttf'"
+            font_param = ":fontfile=C\\:/Windows/Fonts/impact.ttf"
         else:
             font_param = ""
+        # Use \, (escaped commas) instead of quotes for enable/alpha
+        # to avoid single-quote conflicts with the subtitles force_style filter
         filters.append(
             f"drawtext=text='{ht}'"
             f"{font_param}"
             f":fontsize=52:fontcolor=white"
             f":borderw=3:bordercolor=black"
             f":x=(w-text_w)/2:y=h*0.15"
-            f":enable='between(t,0.3,4)'"
-            f":alpha='if(lt(t,0.8),(t-0.3)/0.5,if(gt(t,3.2),1-(t-3.2)/0.8,1))'"
+            f":enable=between(t\\,0.3\\,4)"
+            f":alpha=if(lt(t\\,0.8)\\,(t-0.3)/0.5\\,if(gt(t\\,3.2)\\,1-(t-3.2)/0.8\\,1))"
         )
         logger.info(f"{prefix}Hook overlay: \"{hook_text[:50]}\"")
     elif hook_text:

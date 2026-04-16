@@ -212,21 +212,26 @@ def render_clip(
     filters.append("format=yuv420p")
 
     # Hook text overlay (first 4 seconds — viral TikTok-style accroche)
-    # Only show if it's a real Gemini hook (skip scoring-mode debug strings like "audio=0.84 visual=0.99")
+    # Only show if it's a real Gemini hook (skip scoring-mode debug strings)
     hook_text = (segment.hook_reason or "").strip()
     _is_real_hook = hook_text and len(hook_text) > 5 and not hook_text.startswith("audio=")
+    hook_file = None
     if _is_real_hook:
-        # Escape for FFmpeg drawtext: \: for colons, \\ for backslashes, \, for commas
-        ht = hook_text.replace("\\", "\\\\").replace("'", "\u2019").replace(":", "\\:").replace("%", "%%")
-        # Fontfile: escape colon with \: (no quotes — avoids quote conflicts with subtitles filter)
+        # Write hook to a temp file to avoid ALL quoting issues in the filter chain
+        hook_file = output_path.parent / f"{output_path.stem}_hook.txt"
+        hook_file.write_text(hook_text, encoding="utf-8")
+        try:
+            hook_rel = hook_file.relative_to(Path.cwd())
+        except ValueError:
+            hook_rel = hook_file
+        hook_escaped = str(hook_rel).replace("\\", "/").replace(":", "\\:")
+        # Fontfile path (Windows needs explicit path; Linux/macOS use fontconfig)
         if _sys.platform == "win32":
             font_param = ":fontfile=C\\:/Windows/Fonts/impact.ttf"
         else:
             font_param = ""
-        # Use \, (escaped commas) instead of quotes for enable/alpha
-        # to avoid single-quote conflicts with the subtitles force_style filter
         filters.append(
-            f"drawtext=text='{ht}'"
+            f"drawtext=textfile={hook_escaped}"
             f"{font_param}"
             f":fontsize=52:fontcolor=white"
             f":borderw=3:bordercolor=black"
@@ -234,7 +239,7 @@ def render_clip(
             f":enable=between(t\\,0.3\\,4)"
             f":alpha=if(lt(t\\,0.8)\\,(t-0.3)/0.5\\,if(gt(t\\,3.2)\\,1-(t-3.2)/0.8\\,1))"
         )
-        logger.info(f"{prefix}Hook overlay: \"{hook_text[:50]}\"")
+        logger.info(f"{prefix}Hook overlay (file): \"{hook_text[:50]}\"")
     elif hook_text:
         logger.info(f"{prefix}Skipping hook overlay (not a Gemini hook): \"{hook_text[:50]}\"")
 
@@ -300,9 +305,11 @@ def render_clip(
         logger.error(f"{prefix}FFmpeg stderr:\n{result.stderr[-2000:]}")
         raise RuntimeError(f"FFmpeg failed (exit code {result.returncode}): {result.stderr[-500:]}")
 
-    # Clean up SRT
+    # Clean up temp files (SRT + hook text)
     if srt_path and srt_path.exists():
         srt_path.unlink()
+    if hook_file and hook_file.exists():
+        hook_file.unlink()
 
     # Clean up dubbed audio
     if use_dubbed:

@@ -216,19 +216,12 @@ def render_clip(
     hook_text = (segment.hook_reason or "").strip()
     _is_real_hook = hook_text and len(hook_text) > 5 and not hook_text.startswith("audio=")
     if _is_real_hook:
-        # Escape special chars for FFmpeg drawtext
-        ht = hook_text.replace("\\", "\\\\").replace("'", "\u2019").replace(":", "\\:")
-        ht = ht.replace("%", "%%")
-        # Wrap long hooks into 2 lines (~30 chars max per line)
-        if len(ht) > 30:
-            mid = len(ht) // 2
-            space_idx = ht.rfind(" ", 0, mid + 10)
-            if space_idx > 10:
-                ht = ht[:space_idx] + "\n" + ht[space_idx + 1:]
-        # Use explicit fontfile to avoid Fontconfig crash on Windows
+        # Escape special chars for FFmpeg drawtext (outside quotes: \: for colon, \\ for backslash)
+        ht = hook_text.replace("\\", "\\\\").replace("'", "\u2019").replace(":", "\\:").replace("%", "%%")
+        # Use explicit fontfile on Windows to avoid Fontconfig crash
+        # Inside FFmpeg single quotes, colon is literal — no extra escaping needed
         if _sys.platform == "win32":
-            _font = "C\\\\:/Windows/Fonts/impact.ttf"
-            font_param = f":fontfile='{_font}'"
+            font_param = ":fontfile='C:/Windows/Fonts/impact.ttf'"
         else:
             font_param = ""
         filters.append(
@@ -243,7 +236,6 @@ def render_clip(
         logger.info(f"{prefix}Hook overlay: \"{hook_text[:50]}\"")
     elif hook_text:
         logger.info(f"{prefix}Skipping hook overlay (not a Gemini hook): \"{hook_text[:50]}\"")
-
 
     # Burn subtitles (after scale so coords match output resolution)
     # Use relative path to avoid Windows drive-letter colon breaking FFmpeg filter parser

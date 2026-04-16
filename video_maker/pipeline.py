@@ -259,8 +259,10 @@ def _run_pipeline_sync(job_id: str, youtube_url: str) -> None:
             for fut in futures:
                 fut.result()
 
+        failed_count = num_clips - len(clip_responses)
+
         if not clip_responses:
-            _update_job(job_id, status=JobStatus.FAILED, error="All clip renders failed.")
+            _update_job(job_id, status=JobStatus.FAILED, error=f"Les {num_clips} rendus ont échoué.")
             return
 
         # ── Step 4: Cleanup temp files ──────────────────────────
@@ -270,11 +272,19 @@ def _run_pipeline_sync(job_id: str, youtube_url: str) -> None:
 
         # ── Done ────────────────────────────────────────
         total_duration = sum(c.duration for c in clip_responses)
+        if failed_count > 0:
+            msg = (
+                f"Terminé avec erreurs : {len(clip_responses)}/{num_clips} clips OK "
+                f"({total_duration:.0f}s), {failed_count} échoué(s)"
+            )
+            logger.warning(f"[{job_id}] {msg}")
+        else:
+            msg = f"Terminé ! {len(clip_responses)} clips ({total_duration:.0f}s au total)"
         _update_job(
             job_id,
             status=JobStatus.COMPLETED,
             percent=100,
-            progress=f"Termin\u00e9 ! {len(clip_responses)} clips ({total_duration:.0f}s au total)",
+            progress=msg,
             clips=clip_responses,
         )
         logger.info(f"[{job_id}] Pipeline complete: {len(clip_responses)} clips rendered")

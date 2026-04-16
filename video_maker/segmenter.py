@@ -13,41 +13,51 @@ def _build_prompt() -> str:
     """Build the analysis prompt for Gemini."""
     return f"""Tu es un expert en montage vidéo viral pour les réseaux sociaux (TikTok, Reels, YouTube Shorts).
 
-Analyse cette vidéo YouTube en profondeur et identifie les {MAX_CLIPS} meilleurs moments pour créer des clips viraux autonomes.
+Analyse cette vidéo YouTube et renvoie-moi le top {MAX_CLIPS} sous format JSON.
 
-RÈGLES STRICTES :
-1. Chaque clip doit durer entre {int(CLIP_MIN_DURATION)} et {int(CLIP_MAX_DURATION)} secondes
-2. Chaque clip DOIT former une UNITÉ DE SENS complète — une idée, un argument, une anecdote ou une histoire ENTIÈRE
-3. Le clip doit être COMPRÉHENSIBLE sans avoir vu le reste de la vidéo
-4. PAS de coupure en milieu de phrase ou d'idée
-5. Chaque clip doit se terminer naturellement (fin de phrase, conclusion, chute)
-6. Les segments ne doivent PAS se chevaucher
+CONTRAINTES DE DURÉE (non négociable) :
+- Chaque clip doit durer entre {int(CLIP_MIN_DURATION)} et {int(CLIP_MAX_DURATION)} secondes
+- Il est INTERDIT de retourner des clips plus courts que {int(CLIP_MIN_DURATION)} secondes
+- Si un moment intéressant dure moins de {int(CLIP_MIN_DURATION)}s, étends-le en incluant le contexte avant/après
+
+CONTRAINTES DE CONTENU :
+- Chaque clip DOIT former une UNITÉ DE SENS complète (une idée, un argument, une anecdote ENTIÈRE)
+- Le clip doit être COMPRÉHENSIBLE sans avoir vu le reste de la vidéo
+- PAS de coupure en milieu de phrase ou d'idée
+- Chaque clip se termine naturellement (fin de phrase, conclusion, chute)
+- Les segments ne doivent PAS se chevaucher
 
 HOOK (très important) :
-Pour chaque clip, écris une phrase d'accroche COURTE et PERCUTANTE qui apparaîtra en texte au tout début du clip pour capter l'attention du spectateur.
-Le hook doit donner envie de regarder la suite, créer de la curiosité ou de l'émotion.
-Style TikTok — exemples :
-- "Cet homme a rompu avec sa femme pour cette raison..."
-- "La technique que personne ne connaît"
-- "Il a perdu 50 000€ à cause de ça"
+Le hook est une accroche très courte (MAXIMUM 6-7 mots) à écrire sur la vidéo pour capter l'attention immédiatement.
+Ce n'est PAS un résumé. C'est une PUNCHLINE style titre TikTok / accroche publicitaire.
+Exemples de BONS hooks :
+- "Le risque de ne rien lancer"
+- "Personne ne vous dit ça"
+- "50 000€ perdus à cause de ça"
+- "La méthode interdite"
+- "Il a tout quitté pour ça"
+Exemples de MAUVAIS hooks (trop longs, trop descriptifs) :
+- "Il explique pourquoi il faut se lancer dans l'entrepreneuriat" ❌
+- "La technique que personne ne connaît pour gagner de l'argent" ❌
 
 Retourne UNIQUEMENT un tableau JSON valide (pas de markdown, pas de ```json```, pas de texte autour) :
 [
   {{
-    "start": 125.0,
-    "end": 210.0,
-    "title": "Titre court descriptif du clip",
-    "hook": "La phrase d'accroche percutante",
-    "virality_score": 8
+    "start": 2120.0,
+    "end": 2210.0,
+    "title": "Le coût de l'inaction",
+    "hook": "Le risque de ne rien lancer",
+    "virality_score": 9
   }}
 ]
 
 IMPORTANT :
-- start et end sont en SECONDES (float)
+- start et end sont en SECONDES (float). Exemple : 35 minutes et 20 secondes = 2120.0
 - virality_score de 1 à 10
 - Ordonne par virality_score décroissant
-- Maximum {MAX_CLIPS} clips
-- Chaque clip MINIMUM {int(CLIP_MIN_DURATION)} secondes"""
+- Exactement {MAX_CLIPS} clips
+- Chaque clip MINIMUM {int(CLIP_MIN_DURATION)} secondes, MAXIMUM {int(CLIP_MAX_DURATION)} secondes
+- Hook : MAXIMUM 7 mots, style punchline"""
 
 
 def segment_with_gemini(youtube_url: str) -> List[ClipSegment]:

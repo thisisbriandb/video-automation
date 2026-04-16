@@ -130,8 +130,23 @@ def _render_one_clip(
 # ── Main pipeline ──────────────────────────────────────────────────
 
 
+def _cleanup_previous_runs() -> None:
+    """Wipe all previous workdir/output data to free disk space before a new run."""
+    for d in (WORKING_DIR, OUTPUT_DIR):
+        if d.exists():
+            for child in d.iterdir():
+                if child.is_dir():
+                    cleanup_directory(child)
+                else:
+                    child.unlink(missing_ok=True)
+    logger.info(f"Disk cleanup done (workdir + output cleared)")
+
+
 def _run_pipeline_sync(job_id: str, youtube_url: str) -> None:
     """Synchronous pipeline execution (runs in thread pool)."""
+    # Free disk space from previous runs before downloading
+    _cleanup_previous_runs()
+
     job_dir = WORKING_DIR / job_id
     output_job_dir = OUTPUT_DIR / job_id
     output_job_dir.mkdir(parents=True, exist_ok=True)

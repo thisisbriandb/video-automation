@@ -4,7 +4,7 @@ import json
 import re
 from typing import List
 
-from video_maker.config import GEMINI_API_KEY, GEMINI_MODEL, MAX_CLIPS, CLIP_MIN_DURATION, CLIP_MAX_DURATION
+from video_maker.config import GEMINI_API_KEY, GEMINI_MODEL, MAX_CLIPS, CLIP_MIN_DURATION
 from video_maker.models import ClipSegment
 from video_maker.utils import logger
 
@@ -13,19 +13,19 @@ def _build_prompt() -> str:
     """Build the analysis prompt for Gemini."""
     return f"""Tu es un expert en montage vidéo viral pour les réseaux sociaux (TikTok, Reels, YouTube Shorts).
 
-Analyse cette vidéo YouTube et renvoie-moi le top {MAX_CLIPS} sous format JSON.
+Analyse cette vidéo YouTube et trouve les {MAX_CLIPS} meilleurs POINTS DE DÉPART pour des clips viraux.
 
-CONTRAINTES DE DURÉE (non négociable) :
-- Chaque clip doit durer entre {int(CLIP_MIN_DURATION)} et {int(CLIP_MAX_DURATION)} secondes
-- Il est INTERDIT de retourner des clips plus courts que {int(CLIP_MIN_DURATION)} secondes
-- Si un moment intéressant dure moins de {int(CLIP_MIN_DURATION)}s, étends-le en incluant le contexte avant/après
+⚠️ TU NE CHOISIS QUE LE POINT DE DÉPART (start). La durée du clip sera automatiquement de {int(CLIP_MIN_DURATION)} secondes après "start".
 
-CONTRAINTES DE CONTENU :
-- Chaque clip DOIT former une UNITÉ DE SENS complète (une idée, un argument, une anecdote ENTIÈRE)
-- Le clip doit être COMPRÉHENSIBLE sans avoir vu le reste de la vidéo
-- PAS de coupure en milieu de phrase ou d'idée
-- Chaque clip se termine naturellement (fin de phrase, conclusion, chute)
-- Les segments ne doivent PAS se chevaucher
+RÈGLE CRITIQUE — AUTONOMIE DU CLIP :
+- Le spectateur n'a PAS vu le reste de la vidéo
+- À "start", le sujet DOIT être compréhensible IMMÉDIATEMENT sans aucun contexte préalable
+- Le speaker doit être en train de COMMENCER une nouvelle idée, anecdote, ou argument
+- JAMAIS de "start" en milieu de phrase, milieu de raisonnement, ou qui fait référence à quelque chose dit avant
+- Cherche les moments où le speaker dit "En fait...", "Le truc c'est que...", "J'ai une anecdote...", "Le problème avec...", ou commence un nouveau sujet
+- Si l'intervenant parle d'un sujet depuis 2 minutes, le "start" doit être au DÉBUT de ce sujet, pas au milieu
+- Les {int(CLIP_MIN_DURATION)} secondes APRÈS "start" doivent former un contenu cohérent et intéressant
+- Les segments ne doivent PAS se chevaucher (minimum {int(CLIP_MIN_DURATION)}s entre deux "start")
 
 HOOK (très important) :
 Le hook est une accroche très courte (MAXIMUM 6-7 mots) à écrire sur la vidéo pour capter l'attention immédiatement.
@@ -44,7 +44,6 @@ Retourne UNIQUEMENT un tableau JSON valide (pas de markdown, pas de ```json```, 
 [
   {{
     "start": 2120.0,
-    "end": 2210.0,
     "title": "Le coût de l'inaction",
     "hook": "Le risque de ne rien lancer",
     "virality_score": 9
@@ -52,11 +51,11 @@ Retourne UNIQUEMENT un tableau JSON valide (pas de markdown, pas de ```json```, 
 ]
 
 IMPORTANT :
-- start et end sont en SECONDES (float). Exemple : 35 minutes et 20 secondes = 2120.0
+- start est en SECONDES (float). Exemple : 35 minutes et 20 secondes = 2120.0
+- NE PAS retourner de "end" — la durée est fixée automatiquement à {int(CLIP_MIN_DURATION)}s
 - virality_score de 1 à 10
 - Ordonne par virality_score décroissant
 - Exactement {MAX_CLIPS} clips
-- Chaque clip MINIMUM {int(CLIP_MIN_DURATION)} secondes, MAXIMUM {int(CLIP_MAX_DURATION)} secondes
 - Hook : MAXIMUM 7 mots, style punchline"""
 
 
@@ -115,12 +114,8 @@ def segment_with_gemini(youtube_url: str) -> List[ClipSegment]:
     for seg in segments_data:
         try:
             start = float(seg["start"])
-            end = float(seg["end"])
-            duration = end - start
-
-            if duration < CLIP_MIN_DURATION * 0.8:
-                logger.warning(f"Gemini: skipping short segment {start:.0f}-{end:.0f}s ({duration:.0f}s)")
-                continue
+            # Force exact duration — Gemini only picks start points
+            end = start + CLIP_MIN_DURATION
 
             clips.append(ClipSegment(
                 start=start,

@@ -100,13 +100,18 @@ def words_to_hormozi_ass(
     output_path: Path,
     words_per_chunk: int = 3,
     uppercase: bool = True,
+    hook_text: str = "",
 ) -> Path:
     """Generate Hormozi-style ASS subtitle file with embedded styles.
 
     Uses ASS format so FFmpeg subtitles filter needs NO force_style parameter,
     avoiding all filter-chain escaping issues on Windows.
+    The hook text (if provided) is rendered as a separate style at the top of
+    the screen with a fade-in/fade-out animation — no drawtext filter needed.
     """
-    # ASS header with embedded style
+    # ASS header with embedded styles
+    # - Default: bottom-center subtitles (Alignment=2)
+    # - Hook: top-center hook phrase (Alignment=8), bigger font, fade effect
     header = (
         "[Script Info]\n"
         "ScriptType: v4.00+\n"
@@ -121,13 +126,24 @@ def words_to_hormozi_ass(
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
         "Style: Default,Impact,80,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,"
         "-1,0,0,0,100,100,0,0,1,4,0,2,10,10,180,1\n"
+        "Style: Hook,Impact,100,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,"
+        "-1,0,0,0,100,100,0,0,1,5,0,8,40,40,250,1\n"
         "\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
     )
 
+    lines = [header]
+
+    # Hook line (top of screen, 0.3s → 4s, fade in 500ms / fade out 800ms)
+    if hook_text:
+        lines.append(
+            f"Dialogue: 1,0:00:00.30,0:00:04.00,Hook,,0,0,0,,"
+            f"{{\\fad(500,800)}}{hook_text}\n"
+        )
+
     if not words:
-        output_path.write_text(header, encoding="utf-8-sig")
+        output_path.write_text("".join(lines), encoding="utf-8-sig")
         return output_path
 
     # Group words into chunks
@@ -151,12 +167,11 @@ def words_to_hormozi_ass(
             chunks[j].end = chunks[j + 1].start
 
     # Build dialogue lines
-    lines = [header]
     for chunk in chunks:
         start_ts = _format_ass_time(chunk.start)
         end_ts = _format_ass_time(chunk.end)
         lines.append(f"Dialogue: 0,{start_ts},{end_ts},Default,,0,0,0,,{chunk.text}\n")
 
     output_path.write_text("".join(lines), encoding="utf-8-sig")
-    logger.info(f"Generated Hormozi ASS: {output_path.name} ({len(chunks)} chunks from {len(words)} words)")
+    logger.info(f"Generated Hormozi ASS: {output_path.name} ({len(chunks)} chunks from {len(words)} words, hook={'yes' if hook_text else 'no'})")
     return output_path

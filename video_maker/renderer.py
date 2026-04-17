@@ -159,12 +159,23 @@ def render_clip(
     # ── Ensure output directory exists ──────────────────────────────
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # ── Generate Hormozi-style ASS subtitle file (styles embedded) ──
+    # ── Determine hook text (if any) ────────────────────────────────
+    hook_text = (segment.hook_reason or "").strip()
+    _is_real_hook = hook_text and len(hook_text) > 5 and not hook_text.startswith("audio=")
+    if not _is_real_hook:
+        hook_text = ""
+
+    # ── Generate Hormozi-style ASS subtitle file (styles + hook embedded) ──
     sub_path = None
-    logger.info(f"{prefix}Subtitle words: {len(segment.words)}")
-    if segment.words:
+    logger.info(f"{prefix}Subtitle words: {len(segment.words)}, hook: \"{hook_text[:50]}\"")
+    if segment.words or hook_text:
         sub_path = output_path.parent / f"{output_path.stem}.ass"
-        words_to_hormozi_ass(segment.words, sub_path, words_per_chunk=SUBTITLE_WORDS_PER_CHUNK, uppercase=SUBTITLE_UPPERCASE)
+        words_to_hormozi_ass(
+            segment.words, sub_path,
+            words_per_chunk=SUBTITLE_WORDS_PER_CHUNK,
+            uppercase=SUBTITLE_UPPERCASE,
+            hook_text=hook_text,
+        )
         logger.info(f"{prefix}ASS written: {sub_path} (exists={sub_path.exists()}, size={sub_path.stat().st_size}B)")
 
     # ── Build filter chain ──────────────────────────────────────────
@@ -192,40 +203,9 @@ def render_clip(
     # Pixel format (must come before subtitles)
     filters.append("format=yuv420p")
 
-    # Hook text overlay (first 4 seconds — viral TikTok-style accroche)
-    # Only show if it's a real Gemini hook (skip scoring-mode debug strings)
-    hook_text = (segment.hook_reason or "").strip()
-    _is_real_hook = hook_text and len(hook_text) > 5 and not hook_text.startswith("audio=")
-    hook_file = None
-    if _is_real_hook:
-        # Write hook to a temp file to avoid ALL quoting issues in the filter chain
-        hook_file = output_path.parent / f"{output_path.stem}_hook.txt"
-        hook_file.write_text(hook_text, encoding="utf-8")
-        try:
-            hook_rel = hook_file.relative_to(Path.cwd())
-        except ValueError:
-            hook_rel = hook_file
-        hook_escaped = str(hook_rel).replace("\\", "/").replace(":", "\\:")
-        # Fontfile path (Windows needs explicit path; Linux/macOS use fontconfig)
-        if _sys.platform == "win32":
-            font_param = ":fontfile=C\\:/Windows/Fonts/impact.ttf"
-        else:
-            font_param = ""
-        filters.append(
-            f"drawtext=textfile={hook_escaped}"
-            f"{font_param}"
-            f":fontsize=52:fontcolor=white"
-            f":borderw=3:bordercolor=black"
-            f":x=(w-text_w)/2:y=h*0.15"
-            f":enable=between(t\\,0.3\\,4)"
-            f":alpha=if(lt(t\\,0.8)\\,(t-0.3)/0.5\\,if(gt(t\\,3.2)\\,1-(t-3.2)/0.8\\,1))"
-        )
-        logger.info(f"{prefix}Hook overlay (file): \"{hook_text[:50]}\"")
-    elif hook_text:
-        logger.info(f"{prefix}Skipping hook overlay (not a Gemini hook): \"{hook_text[:50]}\"")
-
-    # Burn subtitles (after scale so coords match output resolution)
-    # ASS file has styles embedded — no force_style needed, no escaping issues
+    # Burn subtitles + hook (ASS file has everything — no drawtext needed)
+    # drawtext + subtitles in the same filter chain crashes FFmpeg on Windows
+    # (ACCESS_VIOLATION in fontconfig), so everything goes through ASS/libass.
     if sub_path and sub_path.exists():
         try:
             sub_rel = sub_path.relative_to(Path.cwd())
@@ -285,11 +265,9 @@ def render_clip(
         logger.error(f"{prefix}FFmpeg stderr:\n{result.stderr[-2000:]}")
         raise RuntimeError(f"FFmpeg failed (exit code {result.returncode}): {result.stderr[-500:]}")
 
-    # Clean up temp files (ASS + hook text)
+    # Clean up temp ASS file
     if sub_path and sub_path.exists():
         sub_path.unlink()
-    if hook_file and hook_file.exists():
-        hook_file.unlink()
 
     # Clean up dubbed audio
     if use_dubbed:

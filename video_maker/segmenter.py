@@ -9,12 +9,27 @@ from video_maker.models import ClipSegment
 from video_maker.utils import logger
 
 
-def _build_prompt() -> str:
+# Ask Gemini for more clips than needed — some will be filtered out
+_GEMINI_REQUEST_CLIPS = 10
+
+
+def _build_prompt(video_duration_s: float = 0) -> str:
     """Build the analysis prompt for Gemini."""
+    duration_hint = ""
+    if video_duration_s > 0:
+        mins = int(video_duration_s // 60)
+        secs = int(video_duration_s % 60)
+        max_start = video_duration_s - CLIP_MAX_DURATION
+        duration_hint = (
+            f"\n⚠️ DURÉE DE LA VIDÉO : {video_duration_s:.0f} secondes ({mins}m{secs:02d}s).\n"
+            f"- INTERDIT de retourner un \"start\" supérieur à {max_start:.0f}s\n"
+            f"- Tous les timestamps doivent être entre 0 et {max_start:.0f}s\n"
+        )
+
     return f"""Tu es un expert en montage vidéo viral pour les réseaux sociaux (TikTok, Reels, YouTube Shorts).
 
-Analyse cette vidéo YouTube et trouve les {MAX_CLIPS} meilleurs POINTS DE DÉPART pour des clips viraux.
-
+Analyse cette vidéo YouTube et trouve les {_GEMINI_REQUEST_CLIPS} meilleurs POINTS DE DÉPART pour des clips viraux.
+{duration_hint}
 ⚠️ TU NE CHOISIS QUE LE POINT DE DÉPART (start). La durée du clip sera automatiquement de {int(CLIP_MAX_DURATION)} secondes après "start".
 
 RÈGLE CRITIQUE — AUTONOMIE DU CLIP :
@@ -55,11 +70,11 @@ IMPORTANT :
 - NE PAS retourner de "end" — la durée est fixée automatiquement à {int(CLIP_MAX_DURATION)}s
 - virality_score de 1 à 10
 - Ordonne par virality_score décroissant
-- Exactement {MAX_CLIPS} clips
+- Exactement {_GEMINI_REQUEST_CLIPS} clips
 - Hook : MAXIMUM 7 mots, style punchline"""
 
 
-def segment_with_gemini(youtube_url: str) -> List[ClipSegment]:
+def segment_with_gemini(youtube_url: str, video_duration_s: float = 0) -> List[ClipSegment]:
     """Send YouTube URL to Gemini for intelligent video segmentation.
 
     Gemini watches the video directly (no upload needed) and returns
@@ -76,7 +91,9 @@ def segment_with_gemini(youtube_url: str) -> List[ClipSegment]:
     from google.genai import types
 
     client = genai.Client(api_key=GEMINI_API_KEY)
-    prompt = _build_prompt()
+    prompt = _build_prompt(video_duration_s=video_duration_s)
+    if video_duration_s > 0:
+        logger.info(f"Gemini: video duration hint = {video_duration_s:.0f}s, requesting {_GEMINI_REQUEST_CLIPS} clips")
 
     logger.info(f"Gemini ({GEMINI_MODEL}): analyzing YouTube video...")
 

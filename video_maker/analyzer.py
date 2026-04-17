@@ -82,8 +82,13 @@ def _analyze_with_gemini(
 
     t0 = time.time()
 
-    # 1. Gemini: analyze video via YouTube URL
-    clips = segment_with_gemini(youtube_url)
+    # 0. Get video duration for Gemini hint + post-filter
+    video_duration = _get_video_duration(video_path)
+    if video_duration > 0:
+        logger.info(f"Source video duration: {video_duration:.1f}s")
+
+    # 1. Gemini: analyze video via YouTube URL (with duration hint)
+    clips = segment_with_gemini(youtube_url, video_duration_s=video_duration)
     if not clips:
         logger.warning("Gemini returned no segments — falling back to scoring")
         return _analyze_with_scoring(video_path, work_dir)
@@ -91,9 +96,7 @@ def _analyze_with_gemini(
     logger.info(f"Gemini segmentation done ({time.time() - t0:.1f}s), {len(clips)} clips")
 
     # 1b. Filter out clips that exceed the actual video duration
-    video_duration = _get_video_duration(video_path)
     if video_duration > 0:
-        logger.info(f"Source video duration: {video_duration:.1f}s")
         valid_clips = [c for c in clips if c.end <= video_duration]
         if len(valid_clips) < len(clips):
             dropped = len(clips) - len(valid_clips)

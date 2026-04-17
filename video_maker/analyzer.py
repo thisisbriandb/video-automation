@@ -1,5 +1,7 @@
 """Video analyzer: Gemini-first (smart segmentation) with scoring fallback."""
 
+import json
+import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -8,6 +10,7 @@ from typing import List
 from video_maker.config import (
     MAX_CLIPS, CLIP_MIN_DURATION, NUM_WORKERS, WHISPER_MODEL, GEMINI_API_KEY,
 )
+from video_maker.renderer import FFPROBE_BIN
 from video_maker.models import (
     AnalysisResult,
     ClipSegment,
@@ -47,6 +50,25 @@ def analyze_video(
     return _analyze_with_scoring(video_path, work_dir)
 
 
+def _get_video_duration(video_path: Path) -> float:
+    """Get video duration in seconds via ffprobe. Returns 0.0 on failure."""
+    cmd = [
+        FFPROBE_BIN,
+        "-v", "quiet",
+        "-print_format", "json",
+        "-show_format",
+        str(video_path),
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if result.returncode == 0:
+            data = json.loads(result.stdout)
+            return float(data.get("format", {}).get("duration", 0.0))
+    except Exception as e:
+        logger.warning(f"ffprobe duration failed: {e}")
+    return 0.0
+
+
 # ── Gemini-first path ─────────────────────────────────────────────────
 
 
@@ -67,6 +89,22 @@ def _analyze_with_gemini(
         return _analyze_with_scoring(video_path, work_dir)
 
     logger.info(f"Gemini segmentation done ({time.time() - t0:.1f}s), {len(clips)} clips")
+
+    # 1b. Filter out clips that exceed the actual video duration
+    video_duration = _get_video_duration(video_path)
+    if video_duration > 0:
+        logger.info(f"Source video duration: {video_duration:.1f}s")
+        valid_clips = [c for c in clips if c.end <= video_duration]
+        if len(valid_clips) < len(clips):
+            dropped = len(clips) - len(valid_clips)
+            logger.warning(
+                f"Dropped {dropped} clips exceeding video duration "
+                f"({video_duration:.0f}s)"
+            )
+        clips = valid_clips
+        if not clips:
+            logger.warning("All Gemini clips exceed video duration — falling back to scoring")
+            return _analyze_with_scoring(video_path, work_dir)
 
     # 2. Whisper: transcribe each Gemini-selected clip for subtitles
     _whisper_transcribe_clips(clips, video_path, work_dir)

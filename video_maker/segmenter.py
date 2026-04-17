@@ -4,7 +4,7 @@ import json
 import re
 from typing import List
 
-from video_maker.config import GEMINI_API_KEY, GEMINI_MODEL, MAX_CLIPS, CLIP_MAX_DURATION
+from video_maker.config import GEMINI_API_KEY, GEMINI_MODEL, MAX_CLIPS, CLIP_MIN_DURATION, CLIP_MAX_DURATION
 from video_maker.models import ClipSegment
 from video_maker.utils import logger
 
@@ -15,32 +15,44 @@ _GEMINI_REQUEST_CLIPS = 10
 
 def _build_prompt(video_duration_s: float = 0) -> str:
     """Build the analysis prompt for Gemini."""
+    min_dur = int(CLIP_MIN_DURATION)
+    max_dur = int(CLIP_MAX_DURATION)
     duration_hint = ""
     if video_duration_s > 0:
         mins = int(video_duration_s // 60)
         secs = int(video_duration_s % 60)
-        max_start = video_duration_s - CLIP_MAX_DURATION
+        max_end = video_duration_s
         duration_hint = (
             f"\n⚠️ DURÉE DE LA VIDÉO : {video_duration_s:.0f} secondes ({mins}m{secs:02d}s).\n"
-            f"- INTERDIT de retourner un \"start\" supérieur à {max_start:.0f}s\n"
-            f"- Tous les timestamps doivent être entre 0 et {max_start:.0f}s\n"
+            f"- INTERDIT de retourner un \"end\" supérieur à {max_end:.0f}s\n"
+            f"- Tous les timestamps (start et end) doivent être entre 0 et {max_end:.0f}s\n"
         )
 
     return f"""Tu es un expert en montage vidéo viral pour les réseaux sociaux (TikTok, Reels, YouTube Shorts).
 
-Analyse cette vidéo YouTube et trouve les {_GEMINI_REQUEST_CLIPS} meilleurs POINTS DE DÉPART pour des clips viraux.
+Analyse cette vidéo YouTube et trouve les {_GEMINI_REQUEST_CLIPS} meilleurs MOMENTS à découper en clips viraux.
 {duration_hint}
-⚠️ TU NE CHOISIS QUE LE POINT DE DÉPART (start). La durée du clip sera automatiquement de {int(CLIP_MAX_DURATION)} secondes après "start".
+RÈGLE CRITIQUE — DURÉE :
+- Chaque clip doit durer ENTRE {min_dur} et {max_dur} secondes
+- MINIMUM {min_dur}s (non négociable — pas de clip plus court)
+- MAXIMUM {max_dur}s (non négociable — pas de clip plus long)
+- Dans cette fourchette, choisis la durée qui permet de TERMINER proprement l'explication/l'anecdote
+- Il vaut mieux un clip de {max_dur}s qui finit sur une punchline qu'un clip de {min_dur}s coupé en pleine phrase
 
-RÈGLE CRITIQUE — AUTONOMIE DU CLIP :
+RÈGLE CRITIQUE — AUTONOMIE DU CLIP (start) :
 - Le spectateur n'a PAS vu le reste de la vidéo
 - À "start", le sujet DOIT être compréhensible IMMÉDIATEMENT sans aucun contexte préalable
 - Le speaker doit être en train de COMMENCER une nouvelle idée, anecdote, ou argument
 - JAMAIS de "start" en milieu de phrase, milieu de raisonnement, ou qui fait référence à quelque chose dit avant
 - Cherche les moments où le speaker dit "En fait...", "Le truc c'est que...", "J'ai une anecdote...", "Le problème avec...", ou commence un nouveau sujet
 - Si l'intervenant parle d'un sujet depuis 2 minutes, le "start" doit être au DÉBUT de ce sujet, pas au milieu
-- Les {int(CLIP_MAX_DURATION)} secondes APRÈS "start" doivent former un contenu cohérent et intéressant
-- Les segments ne doivent PAS se chevaucher (minimum {int(CLIP_MAX_DURATION)}s entre deux "start")
+
+RÈGLE CRITIQUE — FIN NATURELLE (end) :
+- "end" DOIT tomber sur une fin de phrase complète, une conclusion, une punchline, ou une transition naturelle
+- JAMAIS de "end" en plein milieu d'une explication, d'un exemple, ou d'une phrase inachevée
+- Si une explication nécessite {max_dur}s pour être complète, utilise les {max_dur}s complets
+- Si l'idée se boucle proprement à {min_dur+10}s, coupe là
+- Les segments ne doivent PAS se chevaucher
 
 HOOK (très important) :
 Le hook est une accroche très courte (MAXIMUM 6-7 mots) à écrire sur la vidéo pour capter l'attention immédiatement.
@@ -59,6 +71,7 @@ Retourne UNIQUEMENT un tableau JSON valide (pas de markdown, pas de ```json```, 
 [
   {{
     "start": 2120.0,
+    "end": 2195.0,
     "title": "Le coût de l'inaction",
     "hook": "Le risque de ne rien lancer",
     "virality_score": 9
@@ -66,8 +79,8 @@ Retourne UNIQUEMENT un tableau JSON valide (pas de markdown, pas de ```json```, 
 ]
 
 IMPORTANT :
-- start est en SECONDES (float). Exemple : 35 minutes et 20 secondes = 2120.0
-- NE PAS retourner de "end" — la durée est fixée automatiquement à {int(CLIP_MAX_DURATION)}s
+- start et end sont en SECONDES (float). Exemple : 35 minutes et 20 secondes = 2120.0
+- end - start DOIT être entre {min_dur} et {max_dur} secondes
 - virality_score de 1 à 10
 - Ordonne par virality_score décroissant
 - Exactement {_GEMINI_REQUEST_CLIPS} clips
@@ -131,8 +144,18 @@ def segment_with_gemini(youtube_url: str, video_duration_s: float = 0) -> List[C
     for seg in segments_data:
         try:
             start = float(seg["start"])
-            # Force exact duration — Gemini only picks start points
-            end = start + CLIP_MAX_DURATION
+            # Gemini provides end — clamp duration to [CLIP_MIN_DURATION, CLIP_MAX_DURATION]
+            end_raw = seg.get("end")
+            if end_raw is not None:
+                end = float(end_raw)
+                duration = end - start
+                if duration < CLIP_MIN_DURATION:
+                    end = start + CLIP_MIN_DURATION
+                elif duration > CLIP_MAX_DURATION:
+                    end = start + CLIP_MAX_DURATION
+            else:
+                # Fallback: no end returned — use max duration
+                end = start + CLIP_MAX_DURATION
 
             clips.append(ClipSegment(
                 start=start,

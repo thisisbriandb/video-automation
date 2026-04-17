@@ -126,8 +126,8 @@ def words_to_hormozi_ass(
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
         "Style: Default,Impact,80,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,"
         "-1,0,0,0,100,100,0,0,1,4,0,2,10,10,180,1\n"
-        "Style: Hook,Impact,100,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,"
-        "-1,0,0,0,100,100,0,0,1,5,0,8,40,40,250,1\n"
+        "Style: Hook,Impact,100,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,"
+        "-1,0,0,0,100,100,0,0,3,0,0,5,40,40,0,1\n"
         "\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
@@ -135,11 +135,11 @@ def words_to_hormozi_ass(
 
     lines = [header]
 
-    # Hook line (top of screen, 0.3s → 4s, fade in 500ms / fade out 800ms)
+    # Hook line (center screen, 0s → 4s, no fade-in, fade-out 800ms)
     if hook_text:
         lines.append(
-            f"Dialogue: 1,0:00:00.30,0:00:04.00,Hook,,0,0,0,,"
-            f"{{\\fad(500,800)}}{hook_text}\n"
+            f"Dialogue: 1,0:00:00.00,0:00:04.00,Hook,,0,0,0,,"
+            f"{{\\fad(0,800)}}{hook_text}\n"
         )
 
     if not words:

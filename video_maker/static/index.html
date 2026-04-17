@@ -343,6 +343,8 @@ async function submitVideo() {
     if (!url) { $('url-input').focus(); return; }
 
     // Reset UI
+    _renderedClipCount = 0;
+    $('clips-grid').innerHTML = '';
     $('submit-btn').disabled = true;
     $('btn-text').textContent = 'Traitement...';
     showStatusUI();
@@ -460,6 +462,11 @@ function handleUpdate(data) {
     // Steps
     updateSteps(data.status);
 
+    // Show clips progressively as they are rendered
+    if (data.clips && data.clips.length > 0) {
+        showResult(data);
+    }
+
     // Terminal states
     if (data.status === 'completed') {
         stopTimer();
@@ -486,19 +493,23 @@ function showError(msg) {
     $('error-text').classList.remove('hidden');
 }
 
+let _renderedClipCount = 0;
+
 function showResult(data) {
     if (!data.clips || !data.clips.length) return;
 
     const totalDur = data.clips.reduce((s, c) => s + c.duration, 0);
     const elapsed = startTime ? formatTime(Date.now() - startTime) : '';
+    const label = data.status === 'completed' ? 'g\u00e9n\u00e9r\u00e9s' : 'en cours...';
     $('clips-summary').innerHTML =
-        `<strong>${data.clips.length}</strong> clips g\u00e9n\u00e9r\u00e9s &middot; ${Math.round(totalDur)}s au total` +
+        `<strong>${data.clips.length}</strong> clips ${label} &middot; ${Math.round(totalDur)}s au total` +
         (elapsed ? ` &middot; <span style="color:var(--success)">${elapsed}</span>` : '');
 
     const grid = $('clips-grid');
-    grid.innerHTML = '';
 
-    data.clips.forEach((clip, i) => {
+    // Only append new clips (don't rebuild existing ones — avoids resetting video players)
+    for (let i = _renderedClipCount; i < data.clips.length; i++) {
+        const clip = data.clips[i];
         const videoUrl = `${API}${clip.download_link}`;
         const card = document.createElement('div');
         card.className = 'clip-card';
@@ -518,7 +529,8 @@ function showResult(data) {
             </a>
         `;
         grid.appendChild(card);
-    });
+    }
+    _renderedClipCount = data.clips.length;
 
     $('result-section').classList.remove('hidden');
 }

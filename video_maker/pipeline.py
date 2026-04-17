@@ -237,6 +237,7 @@ def _run_pipeline_sync(job_id: str, youtube_url: str) -> None:
                 job_id,
                 percent=pct,
                 progress=f"Rendu clip {rendered_count[0]}/{num_clips}...",
+                clips=list(clip_responses),
             )
 
         with ThreadPoolExecutor(max_workers=RENDER_WORKERS) as render_pool:

@@ -127,7 +127,7 @@ def words_to_hormozi_ass(
         "Style: Default,Impact,80,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,"
         "-1,0,0,0,100,100,0,0,1,4,0,5,10,10,200,1\n"
         "Style: Hook,Impact,100,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,"
-        "-1,0,0,0,100,100,0,0,1,5,0,8,40,40,280,1\n"
+        "-1,0,0,0,100,100,0,0,1,5,0,5,40,40,0,1\n"
         "\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
@@ -146,16 +146,24 @@ def words_to_hormozi_ass(
         output_path.write_text("".join(lines), encoding="utf-8-sig")
         return output_path
 
+    # Delay subtitles so they don't overlap with hook text (0-4s)
+    sub_delay = 4.0 if hook_text else 0.0
+
     # Group words into chunks
     chunks: list[SubtitleLine] = []
     i = 0
     while i < len(words):
         group = words[i : i + words_per_chunk]
+        # Skip words that fall entirely within the hook display period
+        if sub_delay > 0 and group[-1].end <= sub_delay:
+            i += words_per_chunk
+            continue
         text = " ".join(w.word for w in group)
         if uppercase:
             text = text.upper()
+        start_t = max(group[0].start, sub_delay)
         chunks.append(SubtitleLine(
-            start=group[0].start,
+            start=start_t,
             end=group[-1].end,
             text=text,
         ))

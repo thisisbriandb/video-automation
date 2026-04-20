@@ -125,7 +125,7 @@ def words_to_hormozi_ass(
         "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
         "Style: Default,Impact,80,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,"
-        "-1,0,0,0,100,100,0,0,1,4,0,5,10,10,200,1\n"
+        "-1,0,0,0,100,100,0,0,1,4,0,2,10,10,570,1\n"
         "Style: Hook,Impact,100,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,"
         "-1,0,0,0,100,100,0,0,1,5,0,5,40,40,0,1\n"
         "\n"

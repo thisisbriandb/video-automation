@@ -2,9 +2,18 @@
 
 import json
 import re
+import time
 from typing import List
 
-from video_maker.config import GEMINI_API_KEY, GEMINI_MODEL, MAX_CLIPS, CLIP_MIN_DURATION, CLIP_MAX_DURATION
+from video_maker.config import (
+    GEMINI_API_KEY,
+    GEMINI_MODEL,
+    GEMINI_MAX_YOUTUBE_SECONDS,
+    GEMINI_SEGMENT_RETRIES,
+    MAX_CLIPS,
+    CLIP_MIN_DURATION,
+    CLIP_MAX_DURATION,
+)
 from video_maker.models import ClipSegment
 from video_maker.utils import logger
 
@@ -100,6 +109,15 @@ def segment_with_gemini(youtube_url: str, video_duration_s: float = 0) -> List[C
         logger.warning("No GEMINI_API_KEY — skipping Gemini segmentation")
         return []
 
+    if GEMINI_MAX_YOUTUBE_SECONDS > 0 and video_duration_s > GEMINI_MAX_YOUTUBE_SECONDS:
+        logger.warning(
+            f"Gemini segmentation ignorée : durée vidéo {video_duration_s:.0f}s "
+            f"dépasse GEMINI_MAX_YOUTUBE_SECONDS={GEMINI_MAX_YOUTUBE_SECONDS:.0f}s "
+            f"(réf. ~90 min pour YouTube dans la doc Gemini). "
+            f"Tu peux monter GEMINI_MAX_YOUTUBE_SECONDS dans .env ou t’appuyer sur le scoring local."
+        )
+        return []
+
     from google import genai
     from google.genai import types
 
@@ -110,19 +128,42 @@ def segment_with_gemini(youtube_url: str, video_duration_s: float = 0) -> List[C
 
     logger.info(f"Gemini ({GEMINI_MODEL}): analyzing YouTube video...")
 
-    try:
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=[
-                types.Part.from_uri(
-                    file_uri=youtube_url,
-                    mime_type="video/*",
-                ),
-                prompt,
-            ],
-        )
-    except Exception as e:
-        logger.error(f"Gemini API failed: {e}")
+    response = None
+    last_err: Exception | None = None
+    for attempt in range(GEMINI_SEGMENT_RETRIES):
+        try:
+            response = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=[
+                    types.Part.from_uri(
+                        file_uri=youtube_url,
+                        # Vertex / Gemini samples utilisent souvent video/mp4 pour les URLs vidéo
+                        mime_type="video/mp4",
+                    ),
+                    prompt,
+                ],
+            )
+            break
+        except Exception as e:
+            last_err = e
+            msg = str(e)
+            logger.error(f"Gemini API failed (tentative {attempt + 1}/{GEMINI_SEGMENT_RETRIES}): {e}")
+            # 400 INVALID_ARGUMENT arrive parfois de façon transitoire sur les URLs YouTube
+            transient = (
+                "INVALID_ARGUMENT" in msg or "invalid argument" in msg.lower()
+                or "400" in msg or "RESOURCE_EXHAUSTED" in msg
+            )
+            if attempt + 1 < GEMINI_SEGMENT_RETRIES and transient:
+                delay = 2.0 ** (attempt + 1)
+                logger.warning(f"Réessai Gemini dans {delay:.0f}s…")
+                time.sleep(delay)
+
+    if response is None:
+        if last_err and "INVALID_ARGUMENT" in str(last_err) and GEMINI_MODEL.lower().find("preview") >= 0:
+            logger.warning(
+                "Si l’erreur persiste avec un modèle *preview*, essaye GEMINI_MODEL=gemini-2.0-flash "
+                "dans ton .env (meilleure prise en charge URL YouTube)."
+            )
         return []
 
     text = response.text.strip()

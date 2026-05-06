@@ -5,10 +5,24 @@ from typing import Optional
 from enum import Enum
 
 
+class RenderPreset(str, Enum):
+    """Visual preset for the final clip rendering."""
+    DEFAULT = "default"          # 9:16 dynamic crop + Hormozi subs (existing behavior)
+    PODCAST_BW = "podcast_bw"    # background removal + black & white + music
+
+
 # ── Request / Response ──────────────────────────────────────────────
 
 class ClipRequest(BaseModel):
     youtube_url: str = Field(..., description="YouTube video URL")
+    render_preset: RenderPreset = Field(
+        RenderPreset.DEFAULT,
+        description="Rendering preset: 'default' (TikTok subs) or 'podcast_bw' (B&W matting + music)",
+    )
+    music_id: Optional[str] = Field(
+        None,
+        description="Identifier of an audio file uploaded via /api/upload-music (only used by podcast_bw preset)",
+    )
 
 
 class SubtitleWord(BaseModel):
@@ -80,3 +94,4 @@ class PipelineStatus(BaseModel):
     video_title: str = ""
     error: Optional[str] = None
     clips: list[ClipResponse] = Field(default_factory=list)
+    render_preset: RenderPreset = RenderPreset.DEFAULT

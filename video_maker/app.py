@@ -1,14 +1,15 @@
 """FastAPI application for the Video Maker pipeline."""
 
 import asyncio
+import uuid
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, UploadFile, File, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from pathlib import Path
 from video_maker.config import OUTPUT_DIR
 from video_maker.models import ClipRequest, JobStatus, PipelineStatus
-from video_maker.pipeline import start_pipeline, get_job, list_jobs, _job_version
+from video_maker.pipeline import start_pipeline, get_job, list_jobs, _job_version, MUSIC_DIR
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -49,12 +50,73 @@ async def process_video(request: ClipRequest):
     if not url:
         raise HTTPException(status_code=400, detail="youtube_url is required")
 
-    # Basic URL validation
     if not any(domain in url for domain in ["youtube.com", "youtu.be", "youtube-nocookie.com"]):
         raise HTTPException(status_code=400, detail="Invalid YouTube URL")
 
-    job_id = await start_pipeline(url)
+    job_id = await start_pipeline(
+        url,
+        render_preset=request.render_preset,
+        music_id=request.music_id,
+    )
     return get_job(job_id)
+
+
+# ── Music upload (used by the podcast_bw preset) ────────────────────
+
+
+_ALLOWED_AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".opus"}
+_MAX_MUSIC_SIZE = 25 * 1024 * 1024  # 25 MB
+
+
+@app.post("/api/upload-music")
+async def upload_music(file: UploadFile = File(...)):
+    """Upload a background music track for the podcast preset.
+
+    Returns a `music_id` that should be passed to /api/process.
+    """
+    filename = file.filename or "track"
+    ext = Path(filename).suffix.lower()
+    if ext not in _ALLOWED_AUDIO_EXTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported audio format: {ext or '(none)'}. "
+            f"Allowed: {', '.join(sorted(_ALLOWED_AUDIO_EXTS))}",
+        )
+
+    music_id = f"{uuid.uuid4().hex[:12]}{ext}"
+    target = MUSIC_DIR / music_id
+
+    size = 0
+    try:
+        with target.open("wb") as out:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > _MAX_MUSIC_SIZE:
+                    out.close()
+                    target.unlink(missing_ok=True)
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File too large (max {_MAX_MUSIC_SIZE // 1024 // 1024} MB)",
+                    )
+                out.write(chunk)
+    except HTTPException:
+        raise
+    except Exception as e:
+        target.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"Upload failed: {e}")
+    finally:
+        await file.close()
+
+    return JSONResponse(
+        content={
+            "music_id": music_id,
+            "filename": filename,
+            "size_bytes": size,
+        }
+    )
 
 
 @app.get("/api/status/{job_id}", response_model=PipelineStatus)

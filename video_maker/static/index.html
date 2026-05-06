@@ -71,6 +71,51 @@
         .btn:active { transform: translateY(0); }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
+        /* ── Preset selector ─────────────────── */
+        .preset-row {
+            display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap;
+        }
+        .preset-option {
+            flex: 1; min-width: 180px;
+            display: flex; flex-direction: column; gap: 4px;
+            padding: 12px 14px; border-radius: var(--radius);
+            border: 1px solid var(--border); background: var(--surface2);
+            cursor: pointer; transition: all 0.2s;
+        }
+        .preset-option:hover { border-color: var(--accent-light); }
+        .preset-option input[type="radio"] { display: none; }
+        .preset-option.selected {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px var(--accent-glow);
+            background: rgba(124, 58, 237, 0.08);
+        }
+        .preset-title { font-weight: 700; font-size: 0.9rem; color: var(--text); }
+        .preset-desc { font-size: 0.75rem; color: var(--text-dim); line-height: 1.35; }
+
+        .music-upload {
+            margin-top: 14px; padding: 14px;
+            border: 1px dashed var(--border); border-radius: var(--radius);
+            background: var(--surface2);
+        }
+        .music-upload-label {
+            display: block; font-size: 0.85rem; color: var(--text-dim);
+            margin-bottom: 8px; font-weight: 600;
+        }
+        .music-upload input[type="file"] {
+            font-size: 0.85rem; color: var(--text);
+            font-family: inherit; width: 100%;
+        }
+        .music-upload input[type="file"]::file-selector-button {
+            padding: 6px 12px; border-radius: 8px; border: none;
+            background: var(--accent); color: #fff; font-weight: 600;
+            cursor: pointer; margin-right: 10px;
+        }
+        .music-status {
+            margin-top: 8px; font-size: 0.8rem; color: var(--text-dim);
+        }
+        .music-status.ok { color: var(--success); }
+        .music-status.error { color: var(--error); }
+
         /* ── Hidden sections ──────────────────── */
         .hidden { display: none !important; }
 
@@ -197,13 +242,32 @@
 </header>
 
 <main>
-    <!-- URL Input -->
+    <!-- URL Input + preset selector -->
     <div class="card">
         <div class="input-group">
             <input type="text" id="url-input" placeholder="Colle une URL YouTube ici..." autocomplete="off" />
             <button class="btn" id="submit-btn" onclick="submitVideo()">
                 <span id="btn-text">G&eacute;n&eacute;rer</span>
             </button>
+        </div>
+
+        <div class="preset-row">
+            <label class="preset-option selected" data-preset="default">
+                <input type="radio" name="preset" value="default" checked />
+                <span class="preset-title">Standard</span>
+                <span class="preset-desc">9:16 + recadrage visage + sous-titres TikTok</span>
+            </label>
+            <label class="preset-option" data-preset="podcast_bw">
+                <input type="radio" name="preset" value="podcast_bw" />
+                <span class="preset-title">Podcast Noir &amp; Blanc</span>
+                <span class="preset-desc">Isolation sujet (RVM) + N&amp;B + musique de fond</span>
+            </label>
+        </div>
+
+        <div class="music-upload hidden" id="music-upload-section">
+            <label class="music-upload-label" for="music-file">Musique de fond (mp3, wav, m4a...)</label>
+            <input type="file" id="music-file" accept="audio/*" onchange="onMusicSelected()" />
+            <div class="music-status" id="music-status">Aucun fichier s&eacute;lectionn&eacute;</div>
         </div>
     </div>
 
@@ -265,11 +329,68 @@ let startTime = null;
 let currentJobId = null;
 let pollInterval = null;
 let sseRetries = 0;
+let uploadedMusicId = null;
+let uploadedMusicName = null;
 const MAX_SSE_RETRIES = 20;
 
 const $ = id => document.getElementById(id);
 
 const STEP_ORDER = ['downloading', 'analyzing', 'rendering', 'completed'];
+
+// ── Preset selector ───────────────────────────────────────────────
+function getCurrentPreset() {
+    const checked = document.querySelector('input[name="preset"]:checked');
+    return checked ? checked.value : 'default';
+}
+
+function refreshPresetUI() {
+    const preset = getCurrentPreset();
+    document.querySelectorAll('.preset-option').forEach(el => {
+        el.classList.toggle('selected', el.dataset.preset === preset);
+    });
+    const showMusic = preset === 'podcast_bw';
+    $('music-upload-section').classList.toggle('hidden', !showMusic);
+}
+
+document.querySelectorAll('input[name="preset"]').forEach(el => {
+    el.addEventListener('change', refreshPresetUI);
+});
+
+async function onMusicSelected() {
+    const fileEl = $('music-file');
+    const status = $('music-status');
+    if (!fileEl.files || !fileEl.files[0]) {
+        uploadedMusicId = null;
+        uploadedMusicName = null;
+        status.textContent = 'Aucun fichier s\u00e9lectionn\u00e9';
+        status.className = 'music-status';
+        return;
+    }
+    const file = fileEl.files[0];
+    status.textContent = `T\u00e9l\u00e9versement de "${file.name}"...`;
+    status.className = 'music-status';
+    uploadedMusicId = null;
+
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+        const resp = await fetch(`${API}/api/upload-music`, { method: 'POST', body: formData });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err.detail || `Upload failed (${resp.status})`);
+        }
+        const data = await resp.json();
+        uploadedMusicId = data.music_id;
+        uploadedMusicName = data.filename;
+        const sizeMb = (data.size_bytes / 1024 / 1024).toFixed(2);
+        status.textContent = `\u2713 ${data.filename} (${sizeMb} MB) pr\u00eat`;
+        status.className = 'music-status ok';
+    } catch (e) {
+        uploadedMusicId = null;
+        status.textContent = `\u00c9chec : ${e.message}`;
+        status.className = 'music-status error';
+    }
+}
 
 function extractVideoId(url) {
     const m = url.match(/(?:v=|\/v\/|youtu\.be\/|\/shorts\/)([a-zA-Z0-9_-]{11})/);
@@ -370,11 +491,30 @@ async function submitVideo() {
 
     startTimer();
 
+    const preset = getCurrentPreset();
+    if (preset === 'podcast_bw' && !uploadedMusicId) {
+        const proceed = confirm(
+            "Aucune musique n'a \u00e9t\u00e9 t\u00e9l\u00e9vers\u00e9e.\n"
+            + "Le clip sera g\u00e9n\u00e9r\u00e9 avec uniquement la voix du podcast.\n\n"
+            + "Continuer quand m\u00eame ?"
+        );
+        if (!proceed) {
+            stopTimer();
+            resetBtn();
+            return;
+        }
+    }
+
+    const body = { youtube_url: url, render_preset: preset };
+    if (preset === 'podcast_bw' && uploadedMusicId) {
+        body.music_id = uploadedMusicId;
+    }
+
     try {
         const resp = await fetch(`${API}/api/process`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ youtube_url: url }),
+            body: JSON.stringify(body),
         });
         if (!resp.ok) {
             const err = await resp.json();
@@ -584,6 +724,7 @@ async function restoreJob() {
 }
 
 $('url-input').addEventListener('keydown', e => { if (e.key === 'Enter') submitVideo(); });
+refreshPresetUI();
 restoreJob();
 </script>
 

@@ -8,6 +8,7 @@ opencv-python
 openai-whisper
 torch
 torchaudio
+torchvision
 librosa
 numpy
 scipy

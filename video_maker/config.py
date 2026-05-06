@@ -67,6 +67,11 @@ WHISPER_MODEL: str = _get("WHISPER_MODEL", "small")
 # Gemini (for intelligent video segmentation)
 GEMINI_API_KEY: str = _get("GEMINI_API_KEY", "")
 GEMINI_MODEL: str = _get("GEMINI_MODEL", "gemini-2.0-flash")
+# Gemini + URL YouTube: la doc mentionne souvent ~90 min max. Au-delà on évite un appel
+# API quasi sûr d’échouer (400 INVALID_ARGUMENT). 0 = pas de seuil (on tente quand même).
+GEMINI_MAX_YOUTUBE_SECONDS: float = float(_get("GEMINI_MAX_YOUTUBE_SECONDS", "5400"))
+# Nombre de tentatives (certains forum Google signale des 400 intermittents sur YouTube).
+GEMINI_SEGMENT_RETRIES: int = max(1, int(_get("GEMINI_SEGMENT_RETRIES", "3")))
 
 # Ensure dirs exist
 WORKING_DIR.mkdir(parents=True, exist_ok=True)

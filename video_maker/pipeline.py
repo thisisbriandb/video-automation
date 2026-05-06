@@ -12,12 +12,17 @@ from video_maker.models import (
     PipelineStatus,
     ClipResponse,
     ClipSegment,
+    RenderPreset,
 )
 from video_maker.downloader import download_video
 from video_maker.analyzer import analyze_video
 from video_maker.vision import detect_faces
 from video_maker.renderer import render_clip, _probe_video
 from video_maker.utils import logger, cleanup_directory
+
+# Music uploads live in WORKING_DIR/_music/<music_id>.<ext>
+MUSIC_DIR = WORKING_DIR / "_music"
+MUSIC_DIR.mkdir(parents=True, exist_ok=True)
 
 # In-memory job store
 _jobs: dict[str, PipelineStatus] = {}
@@ -62,6 +67,8 @@ def _render_one_clip(
     src_width: int,
     src_height: int,
     job_id: str,
+    render_preset: RenderPreset = RenderPreset.DEFAULT,
+    music_path: Path | None = None,
 ) -> ClipResponse | None:
     """Render a single clip: face detection → (dubbing) → FFmpeg render. Runs in a worker thread."""
     clip_duration = round(segment.end - segment.start, 1)
@@ -81,9 +88,14 @@ def _render_one_clip(
         except Exception as e:
             logger.error(f"{prefix} Face detection failed: {e}")
 
-        # Dubbing: translate + TTS if source is not French
+        # Dubbing: translate + TTS if source is not French (default preset only)
         dubbed_audio_path = None
-        if segment.language and segment.language != "fr" and segment.words:
+        if (
+            render_preset == RenderPreset.DEFAULT
+            and segment.language
+            and segment.language != "fr"
+            and segment.words
+        ):
             logger.info(f"{prefix} Dubbing: {segment.language} → fr")
             try:
                 from video_maker.dubbing import create_dubbed_audio, translate_words
@@ -102,7 +114,7 @@ def _render_one_clip(
                 logger.error(f"{prefix} Dubbing failed: {e}")
 
         # Render
-        logger.info(f"{prefix} Rendering {clip_duration}s clip...")
+        logger.info(f"{prefix} Rendering {clip_duration}s clip (preset={render_preset.value})...")
         render_clip(
             source_path=video_path,
             segment=segment,
@@ -111,6 +123,8 @@ def _render_one_clip(
             src_height=src_height,
             job_id=job_id,
             dubbed_audio_path=dubbed_audio_path,
+            render_preset=render_preset,
+            music_path=music_path,
         )
 
         return ClipResponse(
@@ -131,10 +145,15 @@ def _render_one_clip(
 
 
 def _cleanup_previous_runs() -> None:
-    """Wipe all previous workdir/output data to free disk space before a new run."""
+    """Wipe all previous workdir/output data to free disk space before a new run.
+
+    Preserves the _music/ subfolder so user-uploaded tracks survive across runs.
+    """
     for d in (WORKING_DIR, OUTPUT_DIR):
         if d.exists():
             for child in d.iterdir():
+                if child.name == "_music":
+                    continue
                 if child.is_dir():
                     cleanup_directory(child)
                 else:
@@ -142,7 +161,28 @@ def _cleanup_previous_runs() -> None:
     logger.info(f"Disk cleanup done (workdir + output cleared)")
 
 
-def _run_pipeline_sync(job_id: str, youtube_url: str) -> None:
+def _resolve_music_path(music_id: str | None) -> Path | None:
+    """Look up an uploaded music file by its identifier."""
+    if not music_id:
+        return None
+    # music_id looks like "<uuid>.<ext>"
+    candidate = MUSIC_DIR / music_id
+    if candidate.exists():
+        return candidate
+    # Fallback: search by stem in case the caller stripped the extension
+    stem = music_id.split(".")[0]
+    for p in MUSIC_DIR.glob(f"{stem}.*"):
+        return p
+    logger.warning(f"Music file not found for music_id={music_id}")
+    return None
+
+
+def _run_pipeline_sync(
+    job_id: str,
+    youtube_url: str,
+    render_preset: RenderPreset = RenderPreset.DEFAULT,
+    music_id: str | None = None,
+) -> None:
     """Synchronous pipeline execution (runs in thread pool)."""
     # Free disk space from previous runs before downloading
     _cleanup_previous_runs()
@@ -150,6 +190,12 @@ def _run_pipeline_sync(job_id: str, youtube_url: str) -> None:
     job_dir = WORKING_DIR / job_id
     output_job_dir = OUTPUT_DIR / job_id
     output_job_dir.mkdir(parents=True, exist_ok=True)
+
+    music_path = _resolve_music_path(music_id) if render_preset == RenderPreset.PODCAST_BW else None
+    if render_preset == RenderPreset.PODCAST_BW:
+        logger.info(
+            f"[{job_id}] Preset: podcast_bw, music={music_path.name if music_path else 'NONE'}"
+        )
 
     video_id = _extract_video_id(youtube_url)
 
@@ -240,7 +286,17 @@ def _run_pipeline_sync(job_id: str, youtube_url: str) -> None:
                 clips=list(clip_responses),
             )
 
-        with ThreadPoolExecutor(max_workers=RENDER_WORKERS) as render_pool:
+        # Force single-worker rendering for podcast_bw: RVM is heavy on RAM
+        # and parallel matting jobs would saturate the GPU/CPU.
+        effective_render_workers = (
+            1 if render_preset == RenderPreset.PODCAST_BW else RENDER_WORKERS
+        )
+        if effective_render_workers != RENDER_WORKERS:
+            logger.info(
+                f"[{job_id}] Forcing RENDER_WORKERS=1 for preset={render_preset.value}"
+            )
+
+        with ThreadPoolExecutor(max_workers=effective_render_workers) as render_pool:
             futures = []
             for idx, segment in enumerate(analysis.clips):
                 fut = render_pool.submit(
@@ -252,6 +308,8 @@ def _run_pipeline_sync(job_id: str, youtube_url: str) -> None:
                     src_w,
                     src_h,
                     job_id,
+                    render_preset,
+                    music_path,
                 )
                 fut.add_done_callback(_on_clip_done)
                 futures.append(fut)
@@ -296,7 +354,11 @@ def _run_pipeline_sync(job_id: str, youtube_url: str) -> None:
         cleanup_directory(job_dir)
 
 
-async def start_pipeline(youtube_url: str) -> str:
+async def start_pipeline(
+    youtube_url: str,
+    render_preset: RenderPreset = RenderPreset.DEFAULT,
+    music_id: str | None = None,
+) -> str:
     """Start the video processing pipeline in the background.
 
     Returns:
@@ -308,11 +370,17 @@ async def start_pipeline(youtube_url: str) -> str:
         job_id=job_id,
         status=JobStatus.QUEUED,
         progress="Queued...",
+        render_preset=render_preset,
     )
 
-    logger.info(f"[{job_id}] Starting pipeline for: {youtube_url}")
+    logger.info(
+        f"[{job_id}] Starting pipeline for: {youtube_url} "
+        f"(preset={render_preset.value}, music_id={music_id or '-'})"
+    )
 
     loop = asyncio.get_event_loop()
-    loop.run_in_executor(_executor, _run_pipeline_sync, job_id, youtube_url)
+    loop.run_in_executor(
+        _executor, _run_pipeline_sync, job_id, youtube_url, render_preset, music_id
+    )
 
     return job_id

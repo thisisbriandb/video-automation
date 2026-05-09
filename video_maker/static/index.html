@@ -638,6 +638,8 @@ let _renderedClipCount = 0;
 function showResult(data) {
     if (!data.clips || !data.clips.length) return;
 
+    const hideHook = data.render_preset === 'podcast_bw';
+
     const totalDur = data.clips.reduce((s, c) => s + c.duration, 0);
     const elapsed = startTime ? formatTime(Date.now() - startTime) : '';
     const label = data.status === 'completed' ? 'g\u00e9n\u00e9r\u00e9s' : 'en cours...';
@@ -659,7 +661,7 @@ function showResult(data) {
                 <span class="meta-chip"><strong>${clip.duration}s</strong></span>
                 <span class="meta-chip">Score: <strong>${clip.virality_score}/10</strong></span>
             </div>
-            ${clip.hook_reason ? `<div class="clip-hook">${clip.hook_reason}</div>` : ''}
+            ${!hideHook && clip.hook_reason ? `<div class="clip-hook">${clip.hook_reason}</div>` : ''}
             <div class="video-container">
                 <video controls playsinline preload="metadata" src="${videoUrl}"></video>
             </div>

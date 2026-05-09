@@ -393,13 +393,13 @@ def _render_clip_podcast_bw(
     job_id: str,
     music_path: Path | None,
 ) -> Path:
-    """Podcast B&W render: matting on black + B&W + (optional) music + subtitles.
+    """Podcast B&W render: matting on black + B&W + (optional) music (no text overlay).
 
     Pipeline:
         A. Extract cropped 9:16 clip (no audio).
         B. Run RVM matting: composite foreground on black, output as grayscale video.
         C. Build mixed audio (voice + ducked music) or voice-only loudnorm.
-        D. Combine matted video + audio + burn-in subtitles → final mp4.
+        D. Combine matted video + audio → final mp4 (no subtitles / hook).
     """
     from video_maker.matting import matte_clip_to_bw_on_black
     from video_maker.audio_mix import mix_voice_with_music, extract_voice_only
@@ -418,8 +418,6 @@ def _render_clip_podcast_bw(
     cropped = work_dir / "cropped.mp4"
     matted = work_dir / "matted_bw.mp4"
     audio = work_dir / "audio.m4a"
-
-    sub_path: Path | None = None
 
     try:
         # ── Step A: extract 9:16 cropped clip ────────────────────────
@@ -446,13 +444,8 @@ def _render_clip_podcast_bw(
                 logger.info(f"{prefix}No music provided — voice only")
             extract_voice_only(source_path, audio, segment.start, duration)
 
-        # ── Step D: build final video (matted + audio + subs) ────────
-        sub_path = _generate_subtitle_file(segment, output_path, prefix)
-
+        # ── Step D: final mux (podcast: no Hormozi subtitles / hook burn-in)
         filters = ["format=yuv420p"]
-        if sub_path and sub_path.exists():
-            filters.append(_format_subtitles_filter(sub_path))
-            logger.info(f"{prefix}Adding subtitles to final composition")
         # Slight contrast/brightness boost — B&W often looks washed out otherwise
         filters.append("eq=contrast=1.12:brightness=0.02")
 
@@ -488,12 +481,6 @@ def _render_clip_podcast_bw(
         return output_path
 
     finally:
-        # Cleanup temp work dir + ASS file
-        if sub_path and sub_path.exists():
-            try:
-                sub_path.unlink()
-            except Exception:
-                pass
         try:
             shutil.rmtree(work_dir, ignore_errors=True)
         except Exception:
